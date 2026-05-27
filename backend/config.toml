@@ -1,0 +1,59 @@
+# Lore Seeker 配置文件
+# 非敏感配置放这里，可以提交到 git
+# API Key 等 secrets 放 .env（不提交）
+
+# ===== 应用 =====
+[app]
+jwt_algorithm = "HS256"
+jwt_expire_minutes = 10080
+cors_origins = ["http://localhost:5173", "http://localhost:3000"]
+
+# ===== 数据库 =====
+[database]
+url = "postgresql+asyncpg://loreseeker:loreseeker@db:5432/loreseeker"
+
+# ===== Redis =====
+[redis]
+url = "redis://redis:6379/0"
+
+# ===== LLM 路由 =====
+[llm]
+# 可选: deepseek | gemini | openai
+default_provider = "deepseek"
+
+[llm.deepseek]
+base_url = "https://api.deepseek.com"
+model = "deepseek-chat"
+
+[llm.gemini]
+model = "gemini-2.0-flash"
+
+[llm.openai]
+base_url = "https://api.openai.com/v1"
+model = "gpt-4o-mini"
+
+# ===== 向量模型 =====
+[embedding]
+# 可选: dashscope | openai | jina
+provider = "dashscope"
+
+[embedding.dashscope]
+model = "text-embedding-v3"
+
+# ===== 重排序模型 =====
+[reranker]
+# 可选: dashscope | jina
+provider = "dashscope"
+
+[reranker.dashscope]
+model = "gte-rerank"
+
+# ===== 搜索 =====
+[search]
+# 可选: tavily | serpapi | bing
+api_provider = "tavily"
+
+# ===== 爬虫 =====
+[crawler]
+enabled = true
+headless = true
