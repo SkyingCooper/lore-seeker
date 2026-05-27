@@ -9,7 +9,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-loreseeker}
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./backend/db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
       - "5432:5432"
     healthcheck:
@@ -35,6 +35,9 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    volumes:
+      - playwright-browsers:/root/.cache/ms-playwright  # 挂载浏览器缓存
+      - ./backend:/app                                   # 挂载代码
     env_file: .env
     ports:
       - "8000:8000"
@@ -43,8 +46,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    volumes:
-      - ./backend:/app
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
   worker:
@@ -75,3 +76,4 @@ services:
 
 volumes:
   pgdata:
+  playwright-browsers:
