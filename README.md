@@ -1,260 +1,565 @@
 # Lore Seeker
 
-> A multi-agent knowledge base system that automatically searches, organizes, and retrieves knowledge from the web.
-
-[中文文档](./README_zh.md)
-
-## Overview
-
-Lore Seeker is a LangGraph-orchestrated multi-agent system. The core idea: **let AI handle the full chain of "read the web → distill knowledge → build a structured knowledge base"**, and persist the result into a continuously searchable personal library.
-
-Give it a topic. It searches, filters, organizes, and stores — producing a Markdown knowledge document with a table of contents, ready for natural language Q&A.
+> An AI-native multi-agent knowledge system  
+> Built for Deep Research, Knowledge Persistence, Intelligent Retrieval, and Long-Term Memory
 
 ---
 
-## Architecture
+# 1. Introduction
 
-### Agent Pipeline
+Lore Seeker is:
 
-```
-User Query
-    │
-    ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                       Planner Agent                               │
-│  P&E Reasoning:  Perception → parse intent, decompose queries,    │
-│                              predict knowledge structure           │
-│                  Evaluation → quality scoring, feedback-driven     │
-│                              retry, user preference learning       │
-└────────────────────────────┬─────────────────────────────────────┘
-                             │ search plan (sub-queries + expected chapters)
-                             ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                       Searcher Agent                              │
-│  API mode:     Tavily / SerpAPI / Bing, with domain filtering     │
-│  Crawler mode: Playwright headless browser, full-page extraction  │
-│  Hybrid mode:  API first, crawler fills in depth                  │
-└────────────────────────────┬─────────────────────────────────────┘
-                             │ raw results (title + url + content)
-                             ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                       Organizer Agent                             │
-│  Filters low-quality content, clusters by relevance               │
-│  Generates structured Markdown with YAML front matter + TOC       │
-└────────────────────────────┬─────────────────────────────────────┘
-                             │ Markdown document + TOC
-                             ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                Quality Check (Planner · Evaluation)               │
-│  Scores the document (0–100); score ≥ 75 passes                   │
-│  On failure: injects feedback into Organizer, retries up to 3×    │
-└────────────────────────────┬─────────────────────────────────────┘
-                             │ pass
-                             ▼
-                      Three-layer storage (see below)
+# “A Multi-Agent Driven Knowledge Operating System (Knowledge OS)”
+
+The system orchestrates multiple agents to perform:
+
+```text
+Search → Clean → Organize → Structure → Store → Retrieve → Long-Term Memory
 ```
 
-### Planner Agent — P&E Reasoning
+Ultimately forming a knowledge system that is:
 
-The Planner is the system's brain, operating in two distinct reasoning phases:
-
-**Perception (plan)**
-- Parses user intent, resolves ambiguous phrasing
-- Decomposes a single query into multiple sub-queries covering different dimensions of the topic
-- Predicts the expected knowledge structure (chapter titles) to constrain the Organizer
-- Incorporates the user's historical preferences (`preferences` field) to adjust search strategy
-
-**Evaluation (judge)**
-- Scores the Organizer's Markdown output across multiple dimensions: completeness, structure clarity, factual accuracy
-- Produces specific, actionable feedback injected into the next generation round
-- Records quality scores per task, gradually building a user preference model
-
-```
-Perception                          Evaluation
-──────────────────────────          ──────────────────────────
-user intent → sub-query list        Markdown → quality score
-history prefs → strategy adjust     score feedback → retry prompt
-expected structure → chapter hints  pass record → preference update
-```
-
-### Three-Layer Storage
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Layer 1: Relational (PostgreSQL)                             │
-│  Structured metadata: users, topics, tasks, reports           │
-│  Supports filtering by time, quality score, topic, etc.       │
-├─────────────────────────────────────────────────────────────┤
-│  Layer 2: Vector (pgvector)                                   │
-│  Markdown split into chunks by heading, each chunk embedded   │
-│  Cosine similarity retrieval + reranker model for Top-K       │
-│  Dimension configurable (DashScope text-embedding-v3: 1536)   │
-├─────────────────────────────────────────────────────────────┤
-│  Layer 3: Cache / Queue (Redis)                               │
-│  Celery task queue: async Agent pipeline, non-blocking API    │
-│  Task state cache: frontend polls for progress                │
-└─────────────────────────────────────────────────────────────┘
-```
-
-Retrieval flow across all three layers:
-1. User question → vector layer recalls Top-20 candidate chunks
-2. Reranker model re-scores → keep Top-5
-3. Relational layer enriches with report metadata (title, source, date)
-4. LLM generates the final answer from context
+- Searchable
+- Traceable
+- Extensible
+- Persistent
+- Continuously Evolvable
 
 ---
 
-## Features
+# 2. Project Goals
 
-- **P&E dual-phase planning** — Perception decomposes tasks, Evaluation closes the quality loop with up to 3 automatic refinement rounds
-- **Multi-agent pipeline** — Planner, Searcher, Organizer, Retriever each own a single responsibility; orchestrated as a LangGraph directed graph
-- **Flexible LLM routing** — DeepSeek, Gemini, OpenAI; one-line switch in `config.toml`
-- **Dual search modes** — Search API (Tavily / SerpAPI / Bing) and Playwright crawler, mixable, with per-topic site targeting
-- **Three-layer storage** — Relational + vector + cache, covering structured queries and semantic retrieval
-- **Configurable embedding & reranking** — Alibaba Cloud DashScope, OpenAI, Jina; provider-swappable via config
-- **Personalized memory** — Planner Agent records user editing habits and builds a preference model over time
-- **VitePress-style reader** — Left TOC + right Markdown, rendered with md-editor-v3, Shiki code highlighting
-- **Guest access** — Browser fingerprint login, no registration required; upgradeable to email account
-- **Docker Compose** — One command to start everything
+This project is not a traditional chatbot.
+
+Its core objective is to build an:
+
+# AI-Native Knowledge Infrastructure
 
 ---
 
-## Tech Stack
+## 1. Deep Research
 
-| Layer | Technology |
+Automatically:
+
+- Search
+- Read
+- Summarize
+- Cluster
+- Generate structured knowledge systems
+
+---
+
+## 2. Knowledge Persistence
+
+Transform temporary search results into:
+
+```text
+Long-term knowledge assets
+```
+
+---
+
+## 3. AI-Native Knowledge Base
+
+Build:
+
+- Knowledge Trees
+- TOC (Table of Contents)
+- Citation Tracing
+- Long-Term Memory
+- Hybrid Retrieval
+
+---
+
+## 4. Multi-Agent Collaboration
+
+Through:
+
+- Planner Agent
+- Search Agent
+- Organize Agent
+- Retrieval Agent
+- Evaluation Agent
+
+to automate complex knowledge workflows.
+
+---
+
+# 3. System Architecture
+
+Overall architecture:
+
+```text
+                ┌────────────┐
+                │    User    │
+                └─────┬──────┘
+                      │
+              ┌───────▼────────┐
+              │ Planner Agent  │
+              └───────┬────────┘
+                      │
+      ┌───────────────┼────────────────┐
+      │               │                │
+      ▼               ▼                ▼
+Search Agent   Organize Agent   Retrieval Agent
+      │
+      ▼
+Knowledge Processing Pipeline
+      │
+      ▼
+ PostgreSQL + pgvector
+```
+
+---
+
+# 4. Core Agent Design
+
+## 1. Planner Agent
+
+Responsible for:
+
+- User intent analysis
+- Task decomposition
+- Workflow planning
+- Agent orchestration
+- Quality evaluation
+- Personalized memory
+
+---
+
+## 2. Search Agent
+
+Responsible for:
+
+- Website searching
+- Web crawling
+- Content extraction
+- Information normalization
+- Source credibility analysis
+
+---
+
+## 3. Organize Agent
+
+Responsible for:
+
+- Deduplication
+- Clustering
+- Knowledge organization
+- TOC generation
+- Markdown document generation
+- Knowledge tree construction
+
+---
+
+## 4. Retrieval Agent
+
+Responsible for:
+
+- Query Rewrite
+- Hybrid Search
+- Reranking
+- Context Compression
+- RAG responses
+
+---
+
+## 5. Evaluation Agent
+
+Responsible for:
+
+- Hallucination detection
+- Citation validation
+- Structural completeness evaluation
+- Quality scoring
+
+---
+
+# 5. Technology Stack
+
+## Backend
+
+| Technology | Purpose |
 |---|---|
-| Frontend | Vue 3, TypeScript, Vite, md-editor-v3 |
-| Backend | Python 3.12, FastAPI, LangGraph, LlamaIndex |
-| Agent Reasoning | LangGraph (directed graph), PydanticAI |
-| Task Queue | Celery + Redis |
-| Database | PostgreSQL 16 + pgvector |
-| Crawler | Playwright (headless Chromium) |
-| Deployment | Docker Compose |
+| Python | Primary programming language |
+| FastAPI | API framework |
+| LangGraph | Multi-agent workflows |
+| LlamaIndex | RAG / Retrieval |
+| PydanticAI | Agent schema system |
+| Celery | Async task processing |
+| Redis | Cache / Queue |
+| PostgreSQL | Primary database |
+| pgvector | Vector retrieval |
 
 ---
 
-## Design Docs
+## Frontend
 
-Detailed design specs, architecture decisions, and change history for each module: [docs/](./docs/README.md).
+| Technology | Purpose |
+|---|---|
+| Vue3 | Frontend framework |
+| TypeScript | Type system |
+| Pinia | State management |
+| Vite | Build tool |
+| md-editor-v3 | Markdown rendering |
 
-## Quick Start
+---
 
-**Prerequisites:** Docker and Docker Compose
+## AI / Retrieval
+
+| Technology | Purpose |
+|---|---|
+| OpenAI | LLM provider |
+| Anthropic | Claude models |
+| Gemini | Multi-model support |
+| BGE Reranker | Reranking |
+| Jina Embedding | Embeddings |
+
+---
+
+# 6. Core Features
+
+## 1. Web-Scale Knowledge Search
+
+Supports:
+
+- Targeted websites
+- Multiple search sources
+- Deep crawling
+- Content extraction
+
+---
+
+## 2. Automatic Knowledge Organization
+
+Automatically generates:
+
+- TOC
+- Knowledge Trees
+- Markdown Documents
+- References
+- FAQs
+
+---
+
+## 3. Hybrid Retrieval
+
+Supports:
+
+- BM25
+- Vector Search
+- Hybrid Search
+- Reranking
+- Context Compression
+
+---
+
+## 4. Long-Term Knowledge Persistence
+
+Supports:
+
+- Vector storage
+- Document storage
+- Chunk management
+- Persistent memory
+
+---
+
+## 5. Citation Tracing
+
+All knowledge supports:
+
+```text
+Source tracing
+```
+
+Ensuring:
+
+- Verifiability
+- Traceability
+- Reduced hallucinations
+
+---
+
+# 7. Project Structure
+
+Core structure:
+
+```text
+lore-seeker/
+├── apps/
+├── packages/
+├── frontend/
+├── infrastructure/
+├── context/
+├── tests/
+└── docs/
+```
+
+---
+
+# 8. Context Engineering System
+
+This project introduces a dedicated:
+
+# Context Engineering System
+
+Designed for:
+
+- Claude Code
+- Cursor
+- Gemini CLI
+- AI Agent IDEs
+
+to maintain long-term engineering context.
+
+---
+
+## context Directory Structure
+
+```text
+context/
+├── architecture/
+├── decisions/
+├── prompts/
+├── workflows/
+├── agents/
+├── conventions/
+├── experiments/
+└── roadmap/
+```
+
+---
+
+## Goal
+
+Enable:
+
+# “Shared Long-Term Engineering Memory Between Humans and AI”
+
+Including:
+
+- Architecture decisions
+- Prompt evolution
+- Workflow design
+- Experiment records
+- Incident postmortems
+
+---
+
+# 9. Why LangGraph
+
+Because this project is fundamentally:
+
+```text
+State Machines + Workflows + Agent DAGs
+```
+
+rather than a simple chatbot.
+
+LangGraph provides:
+
+- StateGraph
+- DAG workflows
+- Retry mechanisms
+- Conditional routing
+- Human-in-the-loop support
+
+making it ideal for complex multi-agent systems.
+
+---
+
+# 10. RAG Design
+
+The project uses a:
+
+# Multi-Stage Retrieval Pipeline
+
+```text
+Query Rewrite
+    ↓
+Hybrid Search
+    ↓
+Rerank
+    ↓
+Context Compression
+    ↓
+LLM Response
+```
+
+---
+
+# 11. Knowledge Storage Design
+
+The system uses:
+
+## PostgreSQL + pgvector
+
+to store:
+
+- Documents
+- Chunks
+- Embeddings
+- Citations
+- User memory
+
+---
+
+# 12. Workflow Design
+
+Current workflows include:
+
+| Workflow | Purpose |
+|---|---|
+| knowledge_build | Build structured knowledge systems |
+| rag_chat | RAG-based QA |
+| deep_research | Deep research workflows |
+
+---
+
+# 13. Running the Project
+
+## 1. Initialize the Project
 
 ```bash
-git clone https://github.com/SkyingCooper/lore-seeker.git
-cd lore-seeker
-
-# Copy and fill in your API keys
-cp .env.example .env
-
-# Edit non-sensitive config (models, search provider, etc.)
-vim backend/config.toml
-
-# Start all services
-docker compose up --build
-```
-
-Open `http://localhost:5173`.
-
----
-
-## Configuration
-
-Configuration is split into two files:
-
-**`backend/config.toml`** — non-sensitive settings, safe to commit:
-```toml
-[llm]
-default_provider = "deepseek"   # deepseek | gemini | openai
-
-[llm.deepseek]
-model = "deepseek-chat"
-base_url = "https://api.deepseek.com"
-
-[search]
-api_provider = "tavily"         # tavily | serpapi | bing
-
-[embedding]
-provider = "dashscope"          # dashscope | openai | jina
-
-[reranker]
-provider = "dashscope"
-
-[crawler]
-enabled = true
-headless = true
-```
-
-**`.env`** — secrets only, never commit:
-```
-DEEPSEEK_API_KEY=sk-...
-DASHSCOPE_API_KEY=sk-...
-TAVILY_API_KEY=tvly-...
-SECRET_KEY=your-random-secret
-```
-
-Environment variables take precedence over `config.toml`, so Docker deployments can override any value without modifying files.
-
----
-
-## Project Structure
-
-```
-lore-seeker/
-├── backend/
-│   ├── agents/
-│   │   ├── graph.py        # LangGraph directed graph + conditional edges
-│   │   ├── planner.py      # P&E reasoning: task decomposition + quality check
-│   │   ├── searcher.py     # Search API + Playwright crawler
-│   │   ├── organizer.py    # Markdown generation + TOC extraction
-│   │   └── retriever.py    # Vector search + reranking + QA
-│   ├── api/v1/             # FastAPI routes (auth/users/search/reports/knowledge)
-│   ├── core/
-│   │   ├── config.py       # Settings loader (TOML source + .env)
-│   │   ├── llm_router.py   # Multi-provider LLM factory
-│   │   └── embedding_router.py  # Embedding + reranker factory
-│   ├── db/models.py        # User / Topic / SearchTask / Report / KnowledgeChunk
-│   ├── services/
-│   │   ├── search_service.py    # API search + crawler
-│   │   └── knowledge_service.py # Markdown chunking + vector ingestion
-│   ├── worker/tasks.py     # Celery async tasks (drives the Agent graph)
-│   └── config.toml         # Non-sensitive configuration
-├── frontend/
-│   └── src/
-│       ├── views/          # Login / Browse / Report / Reports / Settings
-│       └── layouts/        # Main sidebar layout
-└── docker-compose.yml      # db / redis / backend / worker / frontend
+chmod +x bootstrap.sh
+./bootstrap.sh
 ```
 
 ---
 
-## API
+## 2. Start Backend
 
-| Method | Path | Description |
-|---|---|---|
-| POST | `/api/v1/auth/guest` | Guest login via browser fingerprint |
-| POST | `/api/v1/auth/register` | Register with email + password |
-| POST | `/api/v1/auth/login` | Login |
-| GET | `/api/v1/search/topics` | List saved topics |
-| POST | `/api/v1/search/topics` | Create a topic |
-| POST | `/api/v1/search/start` | Start a search task (async) |
-| GET | `/api/v1/search/tasks/{id}` | Poll task status |
-| GET | `/api/v1/reports/` | List all reports |
-| GET | `/api/v1/reports/{id}` | Get report with full Markdown |
-| POST | `/api/v1/knowledge/query` | Semantic search + QA |
-
-Interactive docs available at `http://localhost:8000/docs`.
+```bash
+uvicorn apps.api.main:app --reload
+```
 
 ---
 
-## License
+## 3. Start Worker
 
-This project is licensed under **MIT + Commons Clause**.
+```bash
+celery -A apps.worker.celery_app worker --loglevel=info
+```
 
-- Permitted: personal use, research, study, academic work, open-source projects, internal non-commercial tools
-- Requires authorization: any commercial use, including SaaS deployment, paid services, or products whose value derives from this Software
+---
 
-To request a commercial license, contact: [github.com/SkyingCooper](https://github.com/SkyingCooper)
+## 4. Start Frontend
 
-See [LICENSE](./LICENSE) for the full terms.
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+---
+
+# 14. Future Roadmap
+
+## V1
+
+- Basic multi-agent system
+- Search + Organization
+- Hybrid Retrieval
+- Markdown Knowledge Base
+
+---
+
+## V2
+
+- Knowledge Graph
+- Agent Memory
+- Deep Research
+- Multimodal Support
+
+---
+
+## V3
+
+- Autonomous Agents
+- Browser Agents
+- MCP Integration
+- Multi-user Collaboration
+
+---
+
+# 15. Design Principles
+
+## 1. Workflow First
+
+Workflow > Agent Chat
+
+---
+
+## 2. Context Engineering
+
+Context Engineering > Prompt Engineering
+
+---
+
+## 3. Structured Output
+
+Structured Output > Free-form Text
+
+---
+
+## 4. Knowledge Persistence
+
+Long-term knowledge persistence > One-time responses
+
+---
+
+## 5. Citation Required
+
+All knowledge must be traceable.
+
+---
+
+# 16. Use Cases
+
+Suitable for:
+
+- AI Knowledge Bases
+- Deep Research Systems
+- Enterprise Knowledge Platforms
+- Technical Documentation Systems
+- NotebookLM-like products
+- Perplexity-like products
+- AI Search Systems
+
+---
+
+# 17. Project Status
+
+Current phase:
+
+```text
+Architecture Design / MVP Development
+```
+
+---
+
+# 18. License
+
+Lore Seeker Community License 1.0
+
+- Personal Use: Allowed
+- Research Use: Allowed
+- Educational Use: Allowed
+- Commercial Use: Prohibited without permission
+
+---
+
+# 19. Acknowledgements
+
+Special thanks to:
+
+- LangGraph
+- LlamaIndex
+- FastAPI
+- PostgreSQL
+- pgvector
+- OpenAI
+- Anthropic
+
+and the broader open-source AI ecosystem.

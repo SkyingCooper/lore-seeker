@@ -1,64 +1,60 @@
-MIT License with Commons Clause
+# Lore Seeker Community License 1.0
 
-Copyright (c) 2025 SkyingCooper
+Copyright (c) 2026 Lore Seeker Authors
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, and sublicense copies of
-the Software, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+All rights reserved.
 
 ---
 
-Commons Clause Restriction
+## 1. Permission
 
-The Software is provided to you by the Licensor under the License, as defined
-below, subject to the following condition.
+Permission is granted to any individual or organization to:
 
-Without limiting other conditions in the License, the grant of rights under
-the License will not include, and the License does not grant to you, the right
-to Sell the Software.
-
-For purposes of the foregoing, "Sell" means practicing any or all of the
-rights granted to you under the License to provide to third parties, for a
-fee or other consideration (including without limitation fees for hosting or
-consulting/support services related to the Software), a product or service
-whose value derives, entirely or substantially, from the functionality of the
-Software.
-
-Any license notice or attribution required by the License must also include
-this Commons Clause License Condition notice.
+- Use this project for personal use
+- Study the source code
+- Conduct research
+- Use for educational purposes
+- Modify the source code for non-commercial purposes
 
 ---
 
-Commercial Use
+## 2. Restrictions
 
-If you wish to use this Software for commercial purposes — including but not
-limited to integrating it into a paid product, offering it as a hosted
-service, or using it to generate revenue — you must obtain explicit written
-authorization from the copyright holder.
+Without explicit written permission from the copyright holder, you may NOT:
 
-To request a commercial license, please contact: https://github.com/SkyingCooper
+- Use this project for commercial purposes
+- Provide this project as a hosted/SaaS service
+- Sell this software
+- Resell modified versions
+- Use this software in commercial AI platforms
+- Use this project for enterprise commercial deployment
 
 ---
 
-Summary (non-binding)
+## 3. Redistribution
 
-  Permitted:   Personal use, research, study, academic work, open-source
-               projects, internal non-commercial tools, contributions back
-               to this repository.
+Redistribution of modified versions must:
 
-  Requires authorization:   Any commercial use, SaaS deployment, paid
-                            services, or products that derive value from
-                            this Software.
+- Include original copyright notice
+- Clearly document modifications
+- Retain this license
+
+---
+
+## 4. Commercial Licensing
+
+For commercial licensing inquiries, please contact:
+
+[YOUR_EMAIL]
+
+---
+
+## 5. Disclaimer
+
+This software is provided "as is", without warranty of any kind.
+
+---
+
+## 6. Trademark
+
+The name "Lore Seeker" and related branding are reserved by the project authors.
