@@ -71,3 +71,13 @@ TAVILY_API_KEY / SERPAPI_KEY / BING_SEARCH_API_KEY
 - 使用 `dynaconf`：引入额外依赖，pydantic-settings 自定义 source 已足够
 
 **影响范围**：`core/config.py`、`config.toml`、`.env.example`
+
+---
+
+## 2026-05-28 — env_file 路径改为绝对路径
+
+**背景**：从不同目录运行 uvicorn（如 `cd backend && uvicorn` vs Docker Compose 的 `/app`）时，`env_file=".env"` 相对路径解析不一致。
+
+**决策**：在 config.py 中基于 `__file__` 计算出项目根目录的 `.env` 绝对路径（`Path(__file__).parent.parent.parent / ".env"`），确保无论从哪个 CWD 运行都能正确加载。
+
+**影响范围**：`core/config.py`

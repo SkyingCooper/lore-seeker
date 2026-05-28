@@ -2,19 +2,18 @@
 
 ## 认证方案
 
-采用 JWT Bearer Token，支持两种身份：
+采用 JWT Bearer Token + Refresh Token 双令牌机制，支持两种身份：
 
 | 身份 | 获取方式 | 标识字段 |
 |---|---|---|
 | 游客 | `POST /auth/guest`，传入浏览器指纹 | `fingerprint` |
 | 注册用户 | `POST /auth/register` 或 `POST /auth/login` | `email` |
 
-Token 有效期：10080 分钟（7 天），通过 `config.toml` 的 `[app] jwt_expire_minutes` 配置。
-
-所有需要认证的接口在 Header 中携带：
-```
-Authorization: Bearer <token>
-```
+**令牌机制**：
+- **access token**：30 分钟有效期，JWT 含 `jti`（唯一标识），用于 API 鉴权
+- **refresh token**：7 天有效期，JWT 含 `jti`（唯一标识），存 Redis `refresh_token:{user_id}`，用于无感续期
+- **轮换策略**：每次 `/refresh` 或重新登录都会轮换 refresh token，旧 token 立即失效
+- **登出**：access token 的 `jti` 加入 Redis 黑名单，存活期内拒绝使用
 
 ## 接口规范
 
@@ -23,13 +22,17 @@ Authorization: Bearer <token>
 | 方法 | 路径 | 请求体 | 说明 |
 |---|---|---|---|
 | POST | `/api/v1/auth/guest` | `{fingerprint}` | 游客登录，指纹不存在则自动注册 |
-| POST | `/api/v1/auth/register` | `{email, password}` | 邮箱注册 |
+| POST | `/api/v1/auth/register` | `{email, password}` | 邮箱注册（密码须含字母+数字，8 位起） |
 | POST | `/api/v1/auth/login` | form-data `username/password` | 登录（OAuth2 标准格式） |
+| POST | `/api/v1/auth/refresh` | `{refresh_token}` | 刷新 access token（旧 refresh token 被轮换） |
+| POST | `/api/v1/auth/logout` | Header `Authorization: Bearer <token>` | 登出，access token 加入黑名单 |
+| POST | `/api/v1/auth/upgrade` | `{fingerprint, email, password}` | 游客升级为注册用户 |
 
-**响应**（统一）：
+**登录/注册/刷新响应**（统一）：
 ```json
 {
   "access_token": "eyJ...",
+  "refresh_token": "eyJ...",
   "token_type": "bearer",
   "user_id": "uuid",
   "is_guest": false
@@ -104,13 +107,19 @@ Authorization: Bearer <token>
 
 ## 错误码
 
-| HTTP 状态码 | 场景 |
-|---|---|
-| 400 | 请求参数错误（邮箱已注册、密码错误等） |
-| 401 | 未携带 Token 或 Token 无效/过期 |
-| 403 | 无权访问他人资源 |
-| 404 | 资源不存在 |
-| 500 | 服务器内部错误 |
+错误响应格式：`{"detail": {"code": "ERROR_CODE", "detail": "人类可读描述"}}`
+
+| 错误码 | HTTP | 场景 |
+|---|---|---|
+| `AUTH_INVALID_CREDENTIALS` | 400 | 邮箱或密码错误 |
+| `AUTH_EMAIL_EXISTS` | 400 | 邮箱已被注册 |
+| `AUTH_WEAK_PASSWORD` | 400 | 密码不满足强度要求 |
+| `AUTH_TOKEN_EXPIRED` | 401 | Token 过期或无效 |
+| `AUTH_TOKEN_BLACKLISTED` | 401 | Token 已被登出撤销 |
+| `AUTH_REFRESH_INVALID` | 401 | Refresh token 无效或已被轮换 |
+| `AUTH_NOT_AUTHENTICATED` | 401 | 未携带 Token |
+| `GUEST_NOT_FOUND` | 404 | 游客指纹不存在 |
+| `GUEST_ALREADY_REGISTERED` | 400 | 该游客已是注册用户 |
 
 ## 相关文件
 
@@ -136,3 +145,22 @@ Authorization: Bearer <token>
 - 报告列表未做分页，数据量大时需要添加 `limit/offset`
 
 **影响范围**：`api/v1/` 所有文件
+
+---
+
+## 2026-05-28 — 认证模块完整实现
+
+**背景**：基础认证端点只支持简单的 JWT 签发，缺少令牌刷新、登出失效、密码校验等安全机制。
+
+**决策**：
+- 采用双令牌机制（access 30min + refresh 7d），refresh token 存 Redis 支持轮换和撤销
+- 登出时 access token 的 jti 加入 Redis 黑名单（TTL=剩余有效期）实现即时失效
+- 密码校验要求至少 8 位、包含字母和数字
+- 游客升级通过 `POST /auth/upgrade`，携带 fingerprint + email + password，关联已有数据
+- 统一错误码格式 `{code, detail}`，前端可据此处理（如 `AUTH_TOKEN_EXPIRED` 触发自动刷新）
+
+**放弃的方案**：
+- 纯无状态 JWT（放弃主动失效能力，登出后 token 仍可用到过期）
+- refresh token 存数据库（Redis 的 TTL 自动过期更省资源）
+
+**影响范围**：`api/v1/auth.py`、`core/security.py`（新建）、`core/redis_client.py`（新建）、`core/config.py`（fix env_file 路径）、`frontend/src/stores/auth.ts`、`requirements.txt`（pin bcrypt<5）

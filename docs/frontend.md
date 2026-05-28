@@ -99,3 +99,17 @@ Token 注入：在 `auth.ts` 的 `setAuth()` 中直接设置 `api.defaults.heade
 - 报告阅读页未实现内联问答（在报告页直接提问）
 
 **影响范围**：`frontend/src/` 所有文件
+
+---
+
+## 2026-05-28 — 双令牌认证适配
+
+**背景**：后端认证升级为 access + refresh 双令牌机制，前端需同步适配。
+
+**决策**：
+- auth store 新增 `refresh_token` 持久化存储，`setAuth()` 同时存储两个 token
+- 新增 `refreshAccessToken()` 方法：access token 过期时用 refresh token 无感续期
+- `logout()` 先调后端 `/auth/logout` 再清除本地状态
+- `login()` 改用 `URLSearchParams` 发送 OAuth2 标准 form-data 格式
+
+**影响范围**：`frontend/src/stores/auth.ts`

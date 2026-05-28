@@ -8,7 +8,9 @@ from pydantic import model_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 
+_PROJECT_ROOT = Path(__file__).parent.parent.parent
 _TOML_PATH = Path(__file__).parent.parent / "config.toml"
+_ENV_PATH = _PROJECT_ROOT / ".env"
 
 
 class TomlSource(PydanticBaseSettingsSource):
@@ -55,7 +57,7 @@ class TomlSource(PydanticBaseSettingsSource):
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=str(_ENV_PATH), extra="ignore")
 
     # ---- 从 TOML 读取（非敏感） ----
     DATABASE_URL: str = "postgresql+asyncpg://loreseeker:loreseeker@db:5432/loreseeker"
@@ -98,7 +100,7 @@ class Settings(BaseSettings):
         init_settings,
         env_settings,
         dotenv_settings,
-        secrets_dir_settings,
+        file_secret_settings,
     ):
         # 优先级：环境变量 > .env > config.toml > 字段默认值
         return env_settings, dotenv_settings, TomlSource(settings_cls), init_settings

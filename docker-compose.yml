@@ -36,8 +36,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     volumes:
-      - playwright-browsers:/root/.cache/ms-playwright  # 挂载浏览器缓存
-      - ./backend:/app                                   # 挂载代码
+      - playwright-browsers:/root/.cache/ms-playwright
+      - ./backend:/app
     env_file: .env
     ports:
       - "8000:8000"
