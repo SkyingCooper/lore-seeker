@@ -8,17 +8,61 @@
 """
 
 import asyncio
+import os
 import sys
+from pathlib import Path
+from urllib.parse import urlparse
 
 sys.path.insert(0, "backend")
 
 import asyncpg
 import redis.asyncio as aioredis
+from dotenv import load_dotenv
 
 
-DB_URL = "postgresql://loreseeker:loreseeker_pwd@116.62.49.150:5432/loreseeker"
-REDIS_URL = "redis://116.62.49.150:6379/0"
-REDIS_PASSWORD = "loreseeker_redis"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(PROJECT_ROOT / ".env")
+
+
+def _postgres_dsn(raw_url: str | None) -> str | None:
+    if not raw_url:
+        return None
+    return raw_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+
+
+DB_URL = _postgres_dsn(os.getenv("DATABASE_URL"))
+REDIS_URL = os.getenv("REDIS_URL")
+
+
+def _redis_password(raw_url: str | None) -> str | None:
+    if raw_url and urlparse(raw_url).password:
+        return None
+    return os.getenv("REDIS_PASSWORD")
+
+
+REDIS_PASSWORD = _redis_password(REDIS_URL)
+
+
+def require_env() -> None:
+    missing = []
+    if not DB_URL:
+        missing.append("DATABASE_URL")
+    if not REDIS_URL:
+        missing.append("REDIS_URL")
+    if missing:
+        print("缺少连接测试环境变量:")
+        for name in missing:
+            print(f"  - {name}")
+        print("\n请在项目根目录 .env 中配置后重试。")
+        sys.exit(1)
+
+
+def describe_target(url: str | None) -> str:
+    if not url:
+        return "(未配置)"
+    parsed = urlparse(url)
+    host = parsed.hostname or "(unknown-host)"
+    return f"{host}:{parsed.port}" if parsed.port else host
 
 
 async def test_postgresql():
@@ -55,7 +99,7 @@ async def test_redis():
     print("=" * 50)
     print("[2/2] 测试 Redis 连接...")
     try:
-        r = aioredis.from_url(REDIS_URL, password=REDIS_PASSWORD, socket_connect_timeout=10)
+        r = aioredis.from_url(REDIS_URL, password=REDIS_PASSWORD or None, socket_connect_timeout=10)
         await r.ping()
         info = await r.info("server")
         print(f"  Redis 连接成功")
@@ -75,8 +119,10 @@ async def test_redis():
 
 
 async def main():
+    require_env()
     print("\n   Lore Seeker 连接测试")
-    print(f"  目标: 116.62.49.150")
+    print(f"  PostgreSQL 目标: {describe_target(DB_URL)}")
+    print(f"  Redis 目标: {describe_target(REDIS_URL)}")
     print()
 
     db_ok = await test_postgresql()

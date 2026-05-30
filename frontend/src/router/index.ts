@@ -13,6 +13,9 @@ const router = createRouter({
       children: [
         { path: 'browse', component: () => import('@/views/BrowseView.vue') },
         { path: 'browse/:reportId', component: () => import('@/views/ReportView.vue') },
+        { path: 'chat', component: () => import('@/views/ChatView.vue') },
+        { path: 'inbox', component: () => import('@/views/InboxView.vue') },
+        { path: 'profile', component: () => import('@/views/ProfileView.vue') },
         { path: 'reports', component: () => import('@/views/ReportsView.vue') },
         { path: 'settings', component: () => import('@/views/SettingsView.vue') },
       ],

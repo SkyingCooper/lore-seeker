@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
@@ -16,6 +16,7 @@ from core.config import settings
 from core.database import get_db
 from core.redis_client import get_redis
 from core.security import decode_token, make_access_token, make_refresh_token, validate_password
+from core.session import create_guest_session, delete_session, get_session
 from db.models import User
 
 router = APIRouter()
@@ -33,6 +34,7 @@ class ErrorCode:
     AUTH_TOKEN_BLACKLISTED = "AUTH_TOKEN_BLACKLISTED"
     AUTH_REFRESH_INVALID = "AUTH_REFRESH_INVALID"
     AUTH_NOT_AUTHENTICATED = "AUTH_NOT_AUTHENTICATED"
+    GUEST_FORBIDDEN = "GUEST_FORBIDDEN"
     GUEST_NOT_FOUND = "GUEST_NOT_FOUND"
     GUEST_ALREADY_REGISTERED = "GUEST_ALREADY_REGISTERED"
 
@@ -48,12 +50,7 @@ class RegisterRequest(BaseModel):
     password: str
 
 
-class GuestRequest(BaseModel):
-    fingerprint: str
-
-
 class GuestUpgradeRequest(BaseModel):
-    fingerprint: str
     email: EmailStr
     password: str
 
@@ -72,20 +69,8 @@ class TokenResponse(BaseModel):
 
 # ─── Token helpers ────────────────────────────────────────────────────────────
 
-async def _make_token(user_id: str, redis: Redis) -> TokenResponse:
-    access_token, jti, _ = make_access_token(user_id)
-    refresh_token = make_refresh_token(user_id)
-    # 存储 refresh token 到 Redis
-    await redis.setex(f"refresh_token:{user_id}", settings.JWT_EXPIRE_MINUTES * 60, refresh_token)
-    return TokenResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
-        user_id=user_id,
-        is_guest=False,
-    )
-
-
-async def _make_guest_token(user_id: str, redis: Redis) -> TokenResponse:
+async def _make_token_response(user: User, redis: Redis) -> TokenResponse:
+    user_id = str(user.id)
     access_token, jti, _ = make_access_token(user_id)
     refresh_token = make_refresh_token(user_id)
     await redis.setex(f"refresh_token:{user_id}", settings.JWT_EXPIRE_MINUTES * 60, refresh_token)
@@ -93,7 +78,7 @@ async def _make_guest_token(user_id: str, redis: Redis) -> TokenResponse:
         access_token=access_token,
         refresh_token=refresh_token,
         user_id=user_id,
-        is_guest=True,
+        is_guest=user.is_guest,
     )
 
 
@@ -124,41 +109,73 @@ async def _is_blacklisted(token: str, redis: Redis) -> bool:
 # ─── Auth dependency ──────────────────────────────────────────────────────────
 
 async def get_current_user(
+    request: Request,
     token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
     redis: Redis = Depends(get_redis),
 ) -> User:
-    if not token:
-        raise _error(ErrorCode.AUTH_NOT_AUTHENTICATED, "Not authenticated", 401)
-    try:
-        payload = decode_token(token)
-    except JWTError:
-        raise _error(ErrorCode.AUTH_TOKEN_EXPIRED, "Token expired or invalid", 401)
+    # 1. 优先 Bearer token (JWT)
+    if token:
+        try:
+            payload = decode_token(token)
+        except JWTError:
+            raise _error(ErrorCode.AUTH_TOKEN_EXPIRED, "Token expired or invalid", 401)
 
-    if payload.get("type") != "access":
-        raise _error(ErrorCode.AUTH_TOKEN_EXPIRED, "Invalid token type", 401)
+        if payload.get("type") != "access":
+            raise _error(ErrorCode.AUTH_TOKEN_EXPIRED, "Invalid token type", 401)
 
-    if await _is_blacklisted(token, redis):
-        raise _error(ErrorCode.AUTH_TOKEN_BLACKLISTED, "Token has been revoked", 401)
+        if await _is_blacklisted(token, redis):
+            raise _error(ErrorCode.AUTH_TOKEN_BLACKLISTED, "Token has been revoked", 401)
 
-    user = await db.get(User, uuid.UUID(payload["sub"]))
-    if not user:
-        raise _error(ErrorCode.AUTH_NOT_AUTHENTICATED, "User not found", 401)
-    return user
+        user = await db.get(User, uuid.UUID(payload["sub"]))
+        if not user:
+            raise _error(ErrorCode.AUTH_NOT_AUTHENTICATED, "User not found", 401)
+        return user
+
+    # 2. 回退 Session cookie (游客)
+    session_id = request.cookies.get("session_id")
+    if session_id:
+        session = await get_session(redis, session_id)
+        if session:
+            user = await db.get(User, uuid.UUID(session["user_id"]))
+            if user:
+                return user
+
+    raise _error(ErrorCode.AUTH_NOT_AUTHENTICATED, "Not authenticated", 401)
+
+
+async def require_member(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    if current_user.is_guest:
+        raise _error(ErrorCode.GUEST_FORBIDDEN, "Login required for this action", 403)
+    return current_user
 
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 
-@router.post("/guest", response_model=TokenResponse)
-async def guest_login(req: GuestRequest, db: AsyncSession = Depends(get_db), redis: Redis = Depends(get_redis)):
-    result = await db.execute(select(User).where(User.fingerprint == req.fingerprint))
-    user = result.scalar_one_or_none()
-    if not user:
-        user = User(fingerprint=req.fingerprint, is_guest=True)
-        db.add(user)
-        await db.commit()
-        await db.refresh(user)
-    return await _make_guest_token(str(user.id), redis)
+@router.post("/guest")
+async def guest_login(
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    redis: Redis = Depends(get_redis),
+):
+    user = User(fingerprint=None, is_guest=True)
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+
+    session_id = await create_guest_session(redis, str(user.id))
+    response.set_cookie(
+        key="session_id",
+        value=session_id,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=7 * 24 * 3600,
+        path="/",
+    )
+    return {"user_id": str(user.id), "is_guest": True}
 
 
 @router.post("/register", response_model=TokenResponse)
@@ -175,7 +192,7 @@ async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db), red
     db.add(user)
     await db.commit()
     await db.refresh(user)
-    return await _make_token(str(user.id), redis)
+    return await _make_token_response(user, redis)
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -189,7 +206,7 @@ async def login(
     if not user or not user.hashed_password or not pwd_ctx.verify(form.password, user.hashed_password):
         raise _error(ErrorCode.AUTH_INVALID_CREDENTIALS, "Incorrect email or password")
 
-    return await _make_token(str(user.id), redis)
+    return await _make_token_response(user, redis)
 
 
 @router.post("/refresh", response_model=TokenResponse)
@@ -214,37 +231,36 @@ async def refresh(req: RefreshRequest, db: AsyncSession = Depends(get_db), redis
         raise _error(ErrorCode.AUTH_NOT_AUTHENTICATED, "User not found", 401)
 
     # 轮换 refresh token
-    return await (_make_guest_token(user_id, redis) if user.is_guest else _make_token(user_id, redis))
+    return await _make_token_response(user, redis)
 
 
 @router.post("/logout")
 async def logout(
+    request: Request,
     token: str = Depends(oauth2_scheme),
     redis: Redis = Depends(get_redis),
 ):
-    if not token:
-        return {"message": "Logged out"}
-    await _blacklist_token(token, redis)
+    if token:
+        await _blacklist_token(token, redis)
+    session_id = request.cookies.get("session_id")
+    if session_id:
+        await delete_session(redis, session_id)
     return {"message": "Logged out"}
 
 
 @router.post("/upgrade", response_model=TokenResponse)
 async def upgrade_guest(
     req: GuestUpgradeRequest,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     redis: Redis = Depends(get_redis),
 ):
+    if not current_user.is_guest:
+        raise _error(ErrorCode.GUEST_ALREADY_REGISTERED, "Already a registered user")
+
     err = validate_password(req.password)
     if err:
         raise _error(ErrorCode.AUTH_WEAK_PASSWORD, err)
-
-    # 查找游客
-    result = await db.execute(select(User).where(User.fingerprint == req.fingerprint))
-    guest = result.scalar_one_or_none()
-    if not guest:
-        raise _error(ErrorCode.GUEST_NOT_FOUND, "Guest not found with this fingerprint", 404)
-    if not guest.is_guest:
-        raise _error(ErrorCode.GUEST_ALREADY_REGISTERED, "This fingerprint is already linked to a registered account")
 
     # 检查邮箱是否被占用
     email_result = await db.execute(select(User).where(User.email == req.email))
@@ -252,10 +268,11 @@ async def upgrade_guest(
         raise _error(ErrorCode.AUTH_EMAIL_EXISTS, "Email already registered")
 
     # 升级游客为注册用户
-    guest.email = req.email
-    guest.hashed_password = pwd_ctx.hash(req.password)
-    guest.is_guest = False
+    current_user.email = req.email
+    current_user.hashed_password = pwd_ctx.hash(req.password)
+    current_user.is_guest = False
+    current_user.fingerprint = None
     await db.commit()
-    await db.refresh(guest)
+    await db.refresh(current_user)
 
-    return await _make_token(str(guest.id), redis)
+    return await _make_token_response(current_user, redis)

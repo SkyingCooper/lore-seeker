@@ -33,12 +33,21 @@ export const useAuthStore = defineStore('auth', () => {
     api.defaults.headers.common['Authorization'] = `Bearer ${data.access_token}`
   }
 
+  function setGuest(data: { user_id: string; is_guest: boolean }) {
+    token.value = null
+    refreshToken.value = null
+    userId.value = data.user_id
+    isGuest.value = data.is_guest
+    persist('token', null)
+    persist('refreshToken', null)
+    persist('userId', data.user_id)
+    persist('isGuest', String(data.is_guest))
+    delete api.defaults.headers.common['Authorization']
+  }
+
   async function guestLogin() {
-    const FingerprintJS = await import('fingerprintjs')
-    const fp = await FingerprintJS.load()
-    const result = await fp.get()
-    const res = await api.post('/api/v1/auth/guest', { fingerprint: result.visitorId })
-    setAuth(res.data)
+    const res = await api.post('/api/v1/auth/guest')
+    setGuest(res.data)
   }
 
   async function register(email: string, password: string) {

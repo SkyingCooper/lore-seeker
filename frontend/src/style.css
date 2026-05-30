@@ -1,0 +1,107 @@
+@import "tailwindcss";
+
+:root {
+  /* 全局设计 token：暖白底色承接阅读感，蓝灰强调色负责少量科技感。 */
+  --ls-bg: #f7f3eb;
+  --ls-sidebar: #efe8dc;
+  --ls-panel: #fffdf8;
+  --ls-accent: #49617d;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #1f252b;
+  background-color: #f7f3eb;
+  line-height: 1.5;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: var(--ls-bg);
+}
+
+#app {
+  min-height: 100vh;
+}
+
+/* md-editor-v3 预览区的默认样式更偏编辑器，这里压一层知识阅读页的版式。 */
+.md-editor-preview-wrapper {
+  background: transparent !important;
+}
+
+.md-editor-preview {
+  color: #28323d !important;
+  font-size: 15px;
+  line-height: 1.9;
+}
+
+.md-editor-preview h1,
+.md-editor-preview h2,
+.md-editor-preview h3,
+.md-editor-preview h4 {
+  color: #1f252b !important;
+  letter-spacing: 0;
+}
+
+.md-editor-preview h1 {
+  margin-top: 0.2rem !important;
+  margin-bottom: 1.1rem !important;
+  font-size: 2rem !important;
+}
+
+.md-editor-preview h2 {
+  margin-top: 2.4rem !important;
+  margin-bottom: 0.9rem !important;
+  border-bottom: 1px solid #e7dfd3;
+  padding-bottom: 0.55rem;
+  font-size: 1.35rem !important;
+}
+
+.md-editor-preview h3 {
+  margin-top: 1.8rem !important;
+  margin-bottom: 0.7rem !important;
+  font-size: 1.05rem !important;
+}
+
+.md-editor-preview p,
+.md-editor-preview li {
+  color: #4e5b67 !important;
+}
+
+.md-editor-preview code {
+  border: 1px solid #e2dacc;
+  background: #f4eee5 !important;
+  color: #30526c !important;
+  border-radius: 6px;
+  padding: 0.14rem 0.38rem;
+}
+
+.md-editor-preview pre {
+  border: 1px solid #dfd7ca;
+  background: #fbf8f1 !important;
+  border-radius: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.md-editor-preview blockquote {
+  border-left: 3px solid #8ea5bd !important;
+  color: #5a6672 !important;
+  background: #faf6ef;
+  margin: 1.4rem 0;
+  padding: 0.6rem 1rem;
+  border-radius: 0 10px 10px 0;
+}
+
+.md-editor-preview table {
+  overflow: hidden;
+  border: 1px solid #e3dbcf;
+  border-radius: 10px;
+}
+
+.md-editor-preview thead tr {
+  background: #f6efe6 !important;
+}

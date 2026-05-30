@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from core.database import get_db
-from api.v1.auth import get_current_user
+from api.v1.auth import get_current_user, require_member
 from db.models import User
 
 router = APIRouter()
@@ -25,7 +25,7 @@ async def get_me(current_user: User = Depends(get_current_user)):
 @router.patch("/me/preferences")
 async def update_preferences(
     body: PreferencesUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_member),
     db: AsyncSession = Depends(get_db),
 ):
     current_user.preferences = {**current_user.preferences, **body.preferences}

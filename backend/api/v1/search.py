@@ -6,7 +6,7 @@ from typing import List
 import uuid
 
 from core.database import get_db
-from api.v1.auth import get_current_user
+from api.v1.auth import get_current_user, require_member
 from db.models import User, Topic, SearchTask
 from worker.tasks import run_search_pipeline
 
@@ -34,7 +34,7 @@ async def list_topics(current_user: User = Depends(get_current_user), db: AsyncS
 
 
 @router.post("/topics")
-async def create_topic(body: TopicCreate, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def create_topic(body: TopicCreate, current_user: User = Depends(require_member), db: AsyncSession = Depends(get_db)):
     topic = Topic(user_id=current_user.id, **body.model_dump())
     db.add(topic)
     await db.commit()
@@ -45,7 +45,7 @@ async def create_topic(body: TopicCreate, current_user: User = Depends(get_curre
 @router.post("/start")
 async def start_search(
     body: SearchRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_member),
     db: AsyncSession = Depends(get_db),
 ):
     topic_config: dict = {"search_mode": body.search_mode, "target_sites": body.target_sites}

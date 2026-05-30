@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from core.database import get_db
-from api.v1.auth import get_current_user
+from api.v1.auth import get_current_user, require_member
 from db.models import User
 from agents.retriever import retrieve, answer
 
@@ -17,7 +17,7 @@ class QueryRequest(BaseModel):
 @router.post("/query")
 async def query_knowledge(
     body: QueryRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_member),
     db: AsyncSession = Depends(get_db),
 ):
     chunks = await retrieve(body.query, db, top_k=body.top_k * 4)
