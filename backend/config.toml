@@ -7,6 +7,7 @@
 jwt_algorithm = "HS256"
 jwt_expire_minutes = 10080
 cors_origins = ["http://localhost:5173", "http://localhost:3000"]
+cookie_secure = false
 
 # ===== 数据库 =====
 [database]

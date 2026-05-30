@@ -18,7 +18,6 @@ async def _run(task_id: str, user_id: str, query: str, topic_config: dict):
     from db.models import SearchTask
     from services.knowledge_service import store_report
     from sqlalchemy import select
-    import uuid
 
     state: AgentState = {
         "user_id": user_id,
@@ -37,7 +36,7 @@ async def _run(task_id: str, user_id: str, query: str, topic_config: dict):
     final_state = await graph.ainvoke(state)
 
     async with AsyncSessionLocal() as db:
-        task = await db.get(SearchTask, uuid.UUID(task_id))
+        task = await db.get(SearchTask, int(task_id))
         if task and final_state.get("organized_md"):
             await store_report(
                 db=db,

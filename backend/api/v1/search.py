@@ -3,7 +3,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
 from typing import List
-import uuid
 
 from core.database import get_db
 from api.v1.auth import get_current_user, require_member
@@ -51,7 +50,7 @@ async def start_search(
     topic_config: dict = {"search_mode": body.search_mode, "target_sites": body.target_sites}
 
     if body.topic_id:
-        topic = await db.get(Topic, uuid.UUID(body.topic_id))
+        topic = await db.get(Topic, int(body.topic_id))
         if topic and topic.user_id == current_user.id:
             topic_config = {
                 "search_mode": topic.search_mode,
@@ -59,7 +58,7 @@ async def start_search(
                 "description": topic.description,
             }
 
-    task = SearchTask(user_id=current_user.id, query=body.query, topic_id=uuid.UUID(body.topic_id) if body.topic_id else None)
+    task = SearchTask(user_id=current_user.id, query=body.query, topic_id=int(body.topic_id) if body.topic_id else None)
     db.add(task)
     await db.commit()
     await db.refresh(task)
@@ -71,7 +70,7 @@ async def start_search(
 
 @router.get("/tasks/{task_id}")
 async def get_task_status(task_id: str, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    task = await db.get(SearchTask, uuid.UUID(task_id))
+    task = await db.get(SearchTask, int(task_id))
     if not task or task.user_id != current_user.id:
         from fastapi import HTTPException
         raise HTTPException(404, "Task not found")

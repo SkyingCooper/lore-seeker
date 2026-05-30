@@ -31,6 +31,7 @@ class TomlSource(PydanticBaseSettingsSource):
             "JWT_ALGORITHM": d["app"]["jwt_algorithm"],
             "JWT_EXPIRE_MINUTES": d["app"]["jwt_expire_minutes"],
             "CORS_ORIGINS": d["app"]["cors_origins"],
+            "COOKIE_SECURE": d["app"]["cookie_secure"],
             # database
             "DATABASE_URL": d["database"]["url"],
             # redis
@@ -66,6 +67,7 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 10080
     CORS_ORIGINS: list[str] = ["http://localhost:5173"]
+    COOKIE_SECURE: bool = False
 
     DEFAULT_LLM_PROVIDER: Literal["deepseek", "gemini", "openai"] = "deepseek"
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"

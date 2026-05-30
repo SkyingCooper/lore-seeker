@@ -1,5 +1,4 @@
 """知识入库服务：Markdown 切片 + 向量化 + 存储。"""
-import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 from db.models import Report, KnowledgeChunk, SearchTask
 from core.embedding_router import get_embeddings

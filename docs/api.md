@@ -2,18 +2,96 @@
 
 ## 认证方案
 
-采用 JWT Bearer Token + Refresh Token 双令牌机制，支持两种身份：
+采用 **Session Cookie（游客）+ JWT Bearer Token（注册用户）** 双通道认证。
 
-| 身份 | 获取方式 | 标识字段 |
-|---|---|---|
-| 游客 | `POST /auth/guest`，传入浏览器指纹 | `fingerprint` |
-| 注册用户 | `POST /auth/register` 或 `POST /auth/login` | `email` |
+### 认证流程图
 
-**令牌机制**：
-- **access token**：30 分钟有效期，JWT 含 `jti`（唯一标识），用于 API 鉴权
-- **refresh token**：7 天有效期，JWT 含 `jti`（唯一标识），存 Redis `refresh_token:{user_id}`，用于无感续期
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        首次访问（无 Session Cookie）                   │
+│                                                                       │
+│  前端 POST /api/v1/auth/guest                                         │
+│       │                                                               │
+│       ▼                                                               │
+│  后端  生成 session_id = uuid4()                                      │
+│       Redis SET session:{id} = {user_id, is_guest, ...}  TTL=7d      │
+│       DB 创建 guest User 记录                                         │
+│       Set-Cookie: session_id=xxx; HttpOnly; Secure; Max-Age=604800    │
+│       │                                                               │
+│       ▼                                                               │
+│  前端  收到 Cookie，成为游客（只读权限）                                 │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                    再次访问（有 Session Cookie）                       │
+│                                                                       │
+│  前端请求自动带 Cookie: session_id=xxx                                 │
+│       │                                                               │
+│       ▼                                                               │
+│  后端  从 Redis 读取 session，校验有效性                                │
+│       刷新 TTL，更新 last_access_at                                    │
+│       │                                                               │
+│       ▼                                                               │
+│  返回只读内容                                                          │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                        用户登录（账号密码）                             │
+│                                                                       │
+│  前端 POST /api/v1/auth/login                                         │
+│       Body: username=email&password=xxx (form-urlencoded)              │
+│       如果带了游客 SessionID：记录日志，不合并数据，不删除 session        │
+│       │                                                               │
+│       ▼                                                               │
+│  后端  验证账号密码 ✅                                                  │
+│       生成 JWT access_token (30min) + refresh_token (7d)               │
+│       │                                                               │
+│       ▼                                                               │
+│  前端  保存 token 到 localStorage                                      │
+│       后续请求 Header: Authorization: Bearer <token>                   │
+│       重新加载页面，以用户身份展示                                       │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                     访问受保护接口                                    │
+│                                                                       │
+│  前端 Header: Authorization: Bearer <token>                           │
+│       │                                                               │
+│       ▼                                                               │
+│  后端  提取 Token → 验证有效性                                         │
+│       ├── 无效 → 401 Unauthorized                                     │
+│       └── 有效 → 从 Token 获取 user_id → 执行业务逻辑                   │
+│                                                                       │
+│  游客 (Session Cookie) 访问写接口 → 403 GUEST_FORBIDDEN                │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                          用户退出                                     │
+│                                                                       │
+│  前端  清除 localStorage 中的 token                                    │
+│       可选 POST /api/v1/auth/logout（JWT 黑名单 + Session 清除）       │
+│       刷新页面 → 回到游客模式                                          │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### 认证方式对比
+
+| 身份 | 获取方式 | 凭证 | 权限 |
+|---|---|---|---|
+| 游客 | `POST /auth/guest` | Session Cookie (HttpOnly) | 只读：浏览报告 |
+| 注册用户 | `POST /auth/register` 或 `POST /auth/login` | JWT Bearer Token | 读写：搜索、创建、管理 |
+
+**JWT 令牌机制**：
+- **access token**：30 分钟有效期，含 `jti`（唯一标识），用于 API 鉴权
+- **refresh token**：7 天有效期，存 Redis `refresh_token:{user_id}`，用于无感续期
 - **轮换策略**：每次 `/refresh` 或重新登录都会轮换 refresh token，旧 token 立即失效
 - **登出**：access token 的 `jti` 加入 Redis 黑名单，存活期内拒绝使用
+
+**Session Cookie 机制**：
+- **session_id**：UUID，存 Redis `session:{id}`，TTL 7 天
+- **刷新策略**：每次访问自动刷新 TTL 和 `last_access_at`
+- **安全性**：`HttpOnly; Secure; SameSite=Lax; Path=/`
+- **退出**：调用 `/logout` 或自然过期
 
 ## 接口规范
 
@@ -21,12 +99,21 @@
 
 | 方法 | 路径 | 请求体 | 说明 |
 |---|---|---|---|
-| POST | `/api/v1/auth/guest` | `{fingerprint}` | 游客登录，指纹不存在则自动注册 |
-| POST | `/api/v1/auth/register` | `{email, password}` | 邮箱注册（密码须含字母+数字，8 位起） |
-| POST | `/api/v1/auth/login` | form-data `username/password` | 登录（OAuth2 标准格式） |
+| POST | `/api/v1/auth/guest` | 无 | 游客登录，创建 User + Session Cookie |
+| POST | `/api/v1/auth/register` | `{username, email, password}` | 注册（密码须含字母+数字，8 位起） |
+| POST | `/api/v1/auth/login` | form-data `username/password` | 登录，username 填用户名或邮箱 |
 | POST | `/api/v1/auth/refresh` | `{refresh_token}` | 刷新 access token（旧 refresh token 被轮换） |
-| POST | `/api/v1/auth/logout` | Header `Authorization: Bearer <token>` | 登出，access token 加入黑名单 |
-| POST | `/api/v1/auth/upgrade` | `{fingerprint, email, password}` | 游客升级为注册用户 |
+| POST | `/api/v1/auth/logout` | Header `Authorization: Bearer <token>` (可选) | 登出，JWT 黑名单 + Session 清除 |
+| POST | `/api/v1/auth/upgrade` | `{username, email, password}` | 游客升级为注册用户 |
+
+**游客登录响应**：
+```json
+{
+  "user_id": "uuid",
+  "is_guest": true
+}
+```
+同时 `Set-Cookie: session_id=xxx; HttpOnly; Secure; SameSite=Lax; Max-Age=604800; Path=/`
 
 **登录/注册/刷新响应**（统一）：
 ```json
@@ -41,19 +128,19 @@
 
 ### 用户模块
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/api/v1/users/me` | 获取当前用户信息和偏好 |
-| PATCH | `/api/v1/users/me/preferences` | 更新用户偏好（JSON merge） |
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | `/api/v1/users/me` | 游客+用户 | 获取当前用户信息和偏好 |
+| PATCH | `/api/v1/users/me/preferences` | 仅注册用户 | 更新用户偏好（JSON merge） |
 
 ### 搜索模块
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/api/v1/search/topics` | 获取用户主题列表 |
-| POST | `/api/v1/search/topics` | 创建主题 |
-| POST | `/api/v1/search/start` | 启动搜索任务（异步，立即返回 task_id） |
-| GET | `/api/v1/search/tasks/{id}` | 查询任务状态 |
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | `/api/v1/search/topics` | 游客+用户 | 获取用户主题列表 |
+| POST | `/api/v1/search/topics` | 仅注册用户 | 创建主题 |
+| POST | `/api/v1/search/start` | 仅注册用户 | 启动搜索任务（异步，立即返回 task_id） |
+| GET | `/api/v1/search/tasks/{id}` | 游客+用户 | 查询任务状态 |
 
 **启动搜索请求体**：
 ```json
@@ -76,16 +163,16 @@
 
 ### 报告模块
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/api/v1/reports/` | 获取用户所有报告（按时间倒序） |
-| GET | `/api/v1/reports/{id}` | 获取报告完整内容（含 Markdown） |
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | `/api/v1/reports/` | 游客+用户 | 获取用户所有报告（按时间倒序） |
+| GET | `/api/v1/reports/{id}` | 游客+用户 | 获取报告完整内容（含 Markdown） |
 
 ### 知识检索模块
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| POST | `/api/v1/knowledge/query` | 语义检索 + 问答 |
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| POST | `/api/v1/knowledge/query` | 仅注册用户 | 语义检索 + 问答 |
 
 **请求体**：
 ```json
@@ -117,9 +204,9 @@
 | `AUTH_TOKEN_EXPIRED` | 401 | Token 过期或无效 |
 | `AUTH_TOKEN_BLACKLISTED` | 401 | Token 已被登出撤销 |
 | `AUTH_REFRESH_INVALID` | 401 | Refresh token 无效或已被轮换 |
-| `AUTH_NOT_AUTHENTICATED` | 401 | 未携带 Token |
-| `GUEST_NOT_FOUND` | 404 | 游客指纹不存在 |
-| `GUEST_ALREADY_REGISTERED` | 400 | 该游客已是注册用户 |
+| `AUTH_NOT_AUTHENTICATED` | 401 | 未携带任何有效凭证 |
+| `GUEST_FORBIDDEN` | 403 | 游客无权执行此操作 |
+| `GUEST_ALREADY_REGISTERED` | 400 | 当前用户已是注册用户 |
 
 ## 相关文件
 
@@ -128,6 +215,8 @@
 - `backend/api/v1/search.py`
 - `backend/api/v1/reports.py`
 - `backend/api/v1/knowledge.py`
+- `backend/core/session.py`
+- `backend/core/security.py`
 
 ---
 
@@ -164,3 +253,23 @@
 - refresh token 存数据库（Redis 的 TTL 自动过期更省资源）
 
 **影响范围**：`api/v1/auth.py`、`core/security.py`（新建）、`core/redis_client.py`（新建）、`core/config.py`（fix env_file 路径）、`frontend/src/stores/auth.ts`、`requirements.txt`（pin bcrypt<5）
+
+---
+
+## 2026-05-30 — 游客认证从 FingerprintJS 迁移到 Session Cookie
+
+**背景**：FingerprintJS 依赖第三方浏览器指纹库，增加了前端包体积和加载延迟。游客登录更适合用标准的服务端 Session Cookie 方案。
+
+**决策**：
+- 游客登录改为服务端生成 Session Cookie（HttpOnly; Secure; SameSite=Lax; Max-Age=604800）
+- Session 元数据存 Redis（`session:{id}`），每次访问自动刷新 TTL
+- 认证依赖拆分为 `get_current_user`（Bearer token 优先，回退 Session cookie）和 `require_member`（拒绝游客）
+- 移除 `@fingerprintjs/fingerprintjs` 依赖，简化前端
+- 写接口统一加 `require_member` 保护，游客只读
+- 升级接口不再依赖 fingerprint，直接从 Session 解析当前游客身份
+
+**放弃的方案**：
+- 继续使用 FingerprintJS（依赖重量级，跨浏览器不稳定）
+- 纯 JWT 游客（无 Session，前端需自行管理 token，不如 Cookie 透明）
+
+**影响范围**：`api/v1/auth.py`、`core/session.py`（新建）、`api/v1/search.py`、`api/v1/knowledge.py`、`api/v1/users.py`、`frontend/src/stores/auth.ts`、`frontend/src/api/client.ts`、`tests/auth/test_auth_flow.py`

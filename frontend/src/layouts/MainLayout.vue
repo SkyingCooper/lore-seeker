@@ -118,7 +118,7 @@
                     <button
                       v-if="!auth.isGuest"
                       class="ml-auto flex h-11 w-11 items-center justify-center rounded-2xl border border-[#e7dfd3] text-[#6f665b] transition hover:bg-[#f8f5ef]"
-                      @click="auth.logout()"
+                      @click="handleLogout()"
                     >
                       <LogOut :size="18" />
                     </button>
@@ -390,7 +390,7 @@ const copy = computed(() =>
         workspace: 'Workspace',
         guestSession: 'Guest session',
         memberSession: 'Signed-in member',
-        guestHint: 'You are signed in with a browser fingerprint.',
+        guestHint: 'You are browsing as a guest.',
         userIdLabel: 'User ID',
         signIn: 'Register / Sign in',
         signOut: 'Sign out',
@@ -467,9 +467,24 @@ const localeOptions = [
 ]
 
 const displayIdentifier = computed(() => auth.userId?.slice(0, 8) ?? 'guest')
-const displayName = computed(() => (auth.isGuest ? copy.value.guestEmail : displayIdentifier.value))
-const displayInitial = computed(() => (auth.isGuest ? 'G' : displayName.value.slice(0, 1).toUpperCase()))
-const avatarFallback = computed(() => (auth.isGuest ? 'G' : displayName.value.slice(0, 1)))
+const displayName = computed(() => {
+  if (auth.isGuest) return copy.value.guestEmail
+  return auth.username || displayIdentifier.value
+})
+const displayInitial = computed(() => {
+  if (auth.isGuest) return 'G'
+  return (auth.username || displayIdentifier.value).slice(0, 1).toUpperCase()
+})
+const avatarFallback = computed(() => {
+  if (auth.isGuest) return 'G'
+  return (auth.username || displayIdentifier.value).slice(0, 1)
+})
+
+async function handleLogout() {
+  await auth.logout()
+  await auth.guestLogin()
+  router.push('/browse')
+}
 
 function handleNavigate(key: string) {
   router.push(key)

@@ -26,7 +26,23 @@
             </div>
             <div class="rounded-2xl border border-[#e7dfd3] bg-white/75 p-4">
               <div class="text-xs uppercase tracking-[0.14em] text-neutral-400">{{ copy.identifier }}</div>
-              <div class="mt-2 break-all text-base font-medium text-neutral-800">{{ auth.userId ?? 'guest' }}</div>
+              <div class="mt-2 break-all text-base font-medium text-neutral-800">{{ userInfo?.id ?? auth.userId ?? '—' }}</div>
+            </div>
+            <div v-if="!auth.isGuest" class="rounded-2xl border border-[#e7dfd3] bg-white/75 p-4">
+              <div class="text-xs uppercase tracking-[0.14em] text-neutral-400">{{ copy.username }}</div>
+              <div class="mt-2 text-base font-medium text-neutral-800">{{ userInfo?.username || auth.username || '—' }}</div>
+            </div>
+            <div v-if="!auth.isGuest" class="rounded-2xl border border-[#e7dfd3] bg-white/75 p-4">
+              <div class="text-xs uppercase tracking-[0.14em] text-neutral-400">{{ copy.email }}</div>
+              <div class="mt-2 break-all text-base font-medium text-neutral-800">{{ userInfo?.email || '—' }}</div>
+            </div>
+            <div class="rounded-2xl border border-[#e7dfd3] bg-white/75 p-4">
+              <div class="text-xs uppercase tracking-[0.14em] text-neutral-400">{{ copy.createdAt }}</div>
+              <div class="mt-2 text-base font-medium text-neutral-800">{{ formatDate(userInfo?.created_at) }}</div>
+            </div>
+            <div v-if="!auth.isGuest" class="rounded-2xl border border-[#e7dfd3] bg-white/75 p-4">
+              <div class="text-xs uppercase tracking-[0.14em] text-neutral-400">{{ copy.lastLogin }}</div>
+              <div class="mt-2 text-base font-medium text-neutral-800">{{ formatDate(userInfo?.last_login_at) }}</div>
             </div>
           </div>
         </div>
@@ -35,17 +51,36 @@
   </div>
 </template>
 
-<script setup lang="ts">
-// 文件说明：
-// ProfileView 用于展示当前会话的基础身份信息，承接左上角账户下拉中的“个人信息”入口。
-// 当前先展示本地可得的账号类型和标识，后续可扩展为完整资料页。
-import { computed } from 'vue'
+<script setup lang=”ts”>
+import { computed, onMounted, ref } from 'vue'
 import { UserRound } from '@lucide/vue'
+import api from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { useLocaleStore } from '@/stores/locale'
 
 const auth = useAuthStore()
 const locale = useLocaleStore()
+
+interface UserInfo {
+  id: string
+  username: string | null
+  email: string | null
+  avatar_url: string | null
+  is_guest: boolean
+  last_login_at: string | null
+  created_at: string | null
+}
+
+const userInfo = ref<UserInfo | null>(null)
+
+onMounted(async () => {
+  try {
+    const res = await api.get<UserInfo>('/api/v1/users/me')
+    userInfo.value = res.data
+  } catch {
+    // 未登录时使用 store 本地数据
+  }
+})
 
 const copy = computed(() =>
   locale.isChinese
@@ -56,8 +91,13 @@ const copy = computed(() =>
         identity: '当前身份',
         accountType: '账号类型',
         identifier: '会话标识',
+        username: '用户名',
+        email: '邮箱',
+        createdAt: '注册时间',
+        lastLogin: '最近登录',
         guest: '游客会话',
         member: '正式账号',
+        notAvailable: '暂无',
       }
     : {
         section: 'Profile',
@@ -66,11 +106,24 @@ const copy = computed(() =>
         identity: 'Current identity',
         accountType: 'Account type',
         identifier: 'Session identifier',
+        username: 'Username',
+        email: 'Email',
+        createdAt: 'Registered',
+        lastLogin: 'Last login',
         guest: 'Guest session',
         member: 'Member account',
+        notAvailable: 'N/A',
       }
 )
 
-const displayName = computed(() => (auth.isGuest ? copy.value.guest : auth.userId?.slice(0, 8) ?? 'member'))
+function formatDate(iso: string | null | undefined): string {
+  if (!iso) return copy.value.notAvailable
+  return new Date(iso).toLocaleString()
+}
+
+const displayName = computed(() => {
+  if (auth.isGuest) return copy.value.guest
+  return userInfo.value?.username || auth.username || auth.userId?.slice(0, 8) || 'member'
+})
 const accountType = computed(() => (auth.isGuest ? copy.value.guest : copy.value.member))
 </script>

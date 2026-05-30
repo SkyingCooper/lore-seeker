@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from passlib.context import CryptContext
@@ -17,6 +16,7 @@ from core.database import get_db
 from core.redis_client import get_redis
 from core.security import decode_token, make_access_token, make_refresh_token, validate_password
 from core.session import create_guest_session, delete_session, get_session
+from api.v1.captcha import verify_captcha
 from db.models import User
 
 router = APIRouter()
@@ -29,11 +29,13 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=F
 class ErrorCode:
     AUTH_INVALID_CREDENTIALS = "AUTH_INVALID_CREDENTIALS"
     AUTH_EMAIL_EXISTS = "AUTH_EMAIL_EXISTS"
+    AUTH_USERNAME_EXISTS = "AUTH_USERNAME_EXISTS"
     AUTH_WEAK_PASSWORD = "AUTH_WEAK_PASSWORD"
     AUTH_TOKEN_EXPIRED = "AUTH_TOKEN_EXPIRED"
     AUTH_TOKEN_BLACKLISTED = "AUTH_TOKEN_BLACKLISTED"
     AUTH_REFRESH_INVALID = "AUTH_REFRESH_INVALID"
     AUTH_NOT_AUTHENTICATED = "AUTH_NOT_AUTHENTICATED"
+    CAPTCHA_FAILED = "CAPTCHA_FAILED"
     GUEST_FORBIDDEN = "GUEST_FORBIDDEN"
     GUEST_NOT_FOUND = "GUEST_NOT_FOUND"
     GUEST_ALREADY_REGISTERED = "GUEST_ALREADY_REGISTERED"
@@ -46,13 +48,19 @@ def _error(code: str, detail: str, http_status: int = 400) -> HTTPException:
 # ─── Pydantic schemas ─────────────────────────────────────────────────────────
 
 class RegisterRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
     email: EmailStr
     password: str
+    slider_token: str
+    slider_x: int
 
 
 class GuestUpgradeRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
     email: EmailStr
     password: str
+    slider_token: str
+    slider_x: int
 
 
 class RefreshRequest(BaseModel):
@@ -64,6 +72,8 @@ class TokenResponse(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
     user_id: str
+    username: str | None = None
+    avatar_url: str | None = None
     is_guest: bool
 
 
@@ -78,6 +88,8 @@ async def _make_token_response(user: User, redis: Redis) -> TokenResponse:
         access_token=access_token,
         refresh_token=refresh_token,
         user_id=user_id,
+        username=user.username,
+        avatar_url=user.avatar_url,
         is_guest=user.is_guest,
     )
 
@@ -127,7 +139,7 @@ async def get_current_user(
         if await _is_blacklisted(token, redis):
             raise _error(ErrorCode.AUTH_TOKEN_BLACKLISTED, "Token has been revoked", 401)
 
-        user = await db.get(User, uuid.UUID(payload["sub"]))
+        user = await db.get(User, int(payload["sub"]))
         if not user:
             raise _error(ErrorCode.AUTH_NOT_AUTHENTICATED, "User not found", 401)
         return user
@@ -137,7 +149,7 @@ async def get_current_user(
     if session_id:
         session = await get_session(redis, session_id)
         if session:
-            user = await db.get(User, uuid.UUID(session["user_id"]))
+            user = await db.get(User, int(session["user_id"]))
             if user:
                 return user
 
@@ -160,7 +172,7 @@ async def guest_login(
     db: AsyncSession = Depends(get_db),
     redis: Redis = Depends(get_redis),
 ):
-    user = User(fingerprint=None, is_guest=True)
+    user = User(is_guest=True)
     db.add(user)
     await db.commit()
     await db.refresh(user)
@@ -170,7 +182,7 @@ async def guest_login(
         key="session_id",
         value=session_id,
         httponly=True,
-        secure=True,
+        secure=settings.COOKIE_SECURE,
         samesite="lax",
         max_age=7 * 24 * 3600,
         path="/",
@@ -180,15 +192,26 @@ async def guest_login(
 
 @router.post("/register", response_model=TokenResponse)
 async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db), redis: Redis = Depends(get_redis)):
+    await verify_captcha(redis, req.slider_token, req.slider_x)
     err = validate_password(req.password)
     if err:
         raise _error(ErrorCode.AUTH_WEAK_PASSWORD, err)
+
+    result = await db.execute(select(User).where(User.username == req.username))
+    if result.scalar_one_or_none():
+        raise _error(ErrorCode.AUTH_USERNAME_EXISTS, "Username already taken")
 
     result = await db.execute(select(User).where(User.email == req.email))
     if result.scalar_one_or_none():
         raise _error(ErrorCode.AUTH_EMAIL_EXISTS, "Email already registered")
 
-    user = User(email=req.email, hashed_password=pwd_ctx.hash(req.password), is_guest=False)
+    user = User(
+        username=req.username,
+        email=req.email,
+        hashed_password=pwd_ctx.hash(req.password),
+        is_guest=False,
+        last_login_at=datetime.utcnow(),
+    )
     db.add(user)
     await db.commit()
     await db.refresh(user)
@@ -198,13 +221,22 @@ async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db), red
 @router.post("/login", response_model=TokenResponse)
 async def login(
     form: OAuth2PasswordRequestForm = Depends(),
+    slider_token: str = Form(...),
+    slider_x: int = Form(...),
     db: AsyncSession = Depends(get_db),
     redis: Redis = Depends(get_redis),
 ):
-    result = await db.execute(select(User).where(User.email == form.username))
+    await verify_captcha(redis, slider_token, slider_x)
+    # 支持用户名或邮箱登录
+    result = await db.execute(
+        select(User).where((User.username == form.username) | (User.email == form.username))
+    )
     user = result.scalar_one_or_none()
     if not user or not user.hashed_password or not pwd_ctx.verify(form.password, user.hashed_password):
-        raise _error(ErrorCode.AUTH_INVALID_CREDENTIALS, "Incorrect email or password")
+        raise _error(ErrorCode.AUTH_INVALID_CREDENTIALS, "Incorrect username/email or password")
+
+    user.last_login_at = datetime.utcnow()
+    await db.commit()
 
     return await _make_token_response(user, redis)
 
@@ -226,7 +258,7 @@ async def refresh(req: RefreshRequest, db: AsyncSession = Depends(get_db), redis
     if not stored or stored != req.refresh_token:
         raise _error(ErrorCode.AUTH_REFRESH_INVALID, "Refresh token has been revoked", 401)
 
-    user = await db.get(User, uuid.UUID(user_id))
+    user = await db.get(User, int(user_id))
     if not user:
         raise _error(ErrorCode.AUTH_NOT_AUTHENTICATED, "User not found", 401)
 
@@ -255,6 +287,8 @@ async def upgrade_guest(
     db: AsyncSession = Depends(get_db),
     redis: Redis = Depends(get_redis),
 ):
+    await verify_captcha(redis, req.slider_token, req.slider_x)
+
     if not current_user.is_guest:
         raise _error(ErrorCode.GUEST_ALREADY_REGISTERED, "Already a registered user")
 
@@ -262,16 +296,20 @@ async def upgrade_guest(
     if err:
         raise _error(ErrorCode.AUTH_WEAK_PASSWORD, err)
 
-    # 检查邮箱是否被占用
-    email_result = await db.execute(select(User).where(User.email == req.email))
-    if email_result.scalar_one_or_none():
+    result = await db.execute(select(User).where(User.username == req.username))
+    if result.scalar_one_or_none():
+        raise _error(ErrorCode.AUTH_USERNAME_EXISTS, "Username already taken")
+
+    result = await db.execute(select(User).where(User.email == req.email))
+    if result.scalar_one_or_none():
         raise _error(ErrorCode.AUTH_EMAIL_EXISTS, "Email already registered")
 
     # 升级游客为注册用户
+    current_user.username = req.username
     current_user.email = req.email
     current_user.hashed_password = pwd_ctx.hash(req.password)
     current_user.is_guest = False
-    current_user.fingerprint = None
+    current_user.last_login_at = datetime.utcnow()
     await db.commit()
     await db.refresh(current_user)
 
