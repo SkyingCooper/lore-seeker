@@ -122,9 +122,9 @@ Lore Seeker 是一个多 Agent 知识库系统。用户创建搜索任务后，�
 
 ## 5. 当前已确认待实现
 
-1. Agent 记忆表已经建模；用户偏好、Skill 经验和 Redis 工作区归档由 Planner 生成的记忆管理子 Agent 代理实现。
+1. Agent 记忆表已经建模，Redis 工作区已可归档到 `zr_working_sessions`；用户偏好自动提取、Skill 经验分级提炼和 Skill 使用反馈仍由 Planner 生成的记忆管理子 Agent 继续实现。
 2. `/api/v1/search/start` 与 `/api/v1/tasks` 的职责边界后续单独收敛。
-3. Agent、Tool、Redis/DB contract 已建目录和基础 schema，运行链路自动校验待接入。
+3. Agent、Tool、Redis/DB contract 已建目录和基础 schema；任务 Redis 工作区写入已接入校验，Agent handoff、Tool adapter 和 DB query contract 仍需继续接入。
 
 ## 6. 验收基线
 

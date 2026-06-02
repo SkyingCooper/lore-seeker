@@ -94,6 +94,12 @@ Planner 只判断是否需要写入或更新记忆；真正的合并、覆盖、
 
 4.3 warning / critical 级护栏审计不写入 `zr_working_sessions`，单独归档到 `log_guardrail`。
 
+当前实现：
+
+- `backend/services/memory_manager.py` 提供 `archive_working_session()`，可把 `task:{task_id}:working_log` 归档到 `zr_working_sessions`。
+- `archive_working_session()` 会扫描工作日志中的 `guardrail_decision`，把 warning / critical 级记录写入 `log_guardrail`。
+- `upsert_user_preference()`、`insert_skill_memory()` 和 `update_skill_usage()` 已作为基础写入服务存在，自动判断和提取逻辑仍由后续记忆管理子 Agent 接入。
+
 ### 验收标准
 
 - 用户偏好可被覆盖和撤销。
@@ -199,4 +205,3 @@ AND created_at < NOW() - INTERVAL '30 days'
 
 1. 完整实现 `zr_user_preferences` 自动更新，由 Planner 生成的记忆管理子 Agent 代理执行。
 2. 完整实现 `zr_skill_memories` 分级写入和使用反馈更新，由记忆管理子 Agent 代理执行。
-3. 完整实现 Redis 工作区到 `zr_working_sessions` 的持久化，由记忆管理子 Agent 代理执行。

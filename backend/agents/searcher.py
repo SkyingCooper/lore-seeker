@@ -14,6 +14,7 @@ from agents.guardrails import (
     on_tool_error,
 )
 from services.search_service import search_api, crawl_sites
+from agents.token_usage import merge_stage_usage
 
 
 async def searcher_node(state: AgentState) -> dict:
@@ -31,7 +32,13 @@ async def searcher_node(state: AgentState) -> dict:
     plan = config.get("_plan", {})
     queries = plan.get("search_queries", [state["query"]])
     source_sites: list[str] = config.get("source_sites", [])
-    search_mode: str = config.get("search_mode", "api")
+    search_mode: str = config.get("search_mode", "mixed")
+    token_usage = merge_stage_usage(
+        state.get("token_usage"),
+        stage="search",
+        usage={"input_tokens": 0, "output_tokens": 0, "total": 0},
+        model=None,
+    )
 
     results = []
 
@@ -110,7 +117,7 @@ async def searcher_node(state: AgentState) -> dict:
             seen.add(url)
             deduped.append(r)
 
-    output = {"raw_results": deduped}
+    output = {"raw_results": deduped, "token_usage": token_usage}
     try:
         after_run(AgentOutputContext(agent_name="searcher", operation="standardize_search_result", result=output))
     except Exception as exc:

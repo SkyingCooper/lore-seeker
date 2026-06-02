@@ -244,7 +244,7 @@ Prompt 策略：
 
 ### 决策
 
-Planner 读取 `User.preferences` 作为计划约束。任务完成后的偏好更新归入已确认待实现项。
+Planner 读取 `User.preferences` 作为计划约束。任务完成后的偏好基础写入服务已存在，偏好自动提取和冲突判断由记忆管理子 Agent 接入。
 
 ### 实现要点
 
@@ -291,6 +291,5 @@ Planner 读写的关键 state 字段：
 - Planner 在任务收尾阶段生成记忆管理子 Agent。
 - 记忆管理子 Agent 完整实现 `zr_user_preferences` 自动更新。
 - 记忆管理子 Agent 完整实现 `zr_skill_memories` 分级写入和使用反馈更新。
-- 记忆管理子 Agent 完整实现 Redis 工作区到 `zr_working_sessions` 的持久化。
 
 记忆管理细节见 `agent-memory-manager.md`。

@@ -74,12 +74,15 @@
     },
     "task_context": {
       "type": "object",
-      "additionalProperties": false,
+      "additionalProperties": true,
       "required": ["task_id", "user_id", "status", "started_at", "expected_subtask_count"],
       "properties": {
         "task_id": { "type": ["integer", "string"] },
         "user_id": { "type": ["integer", "string"] },
-        "status": { "type": "string", "enum": ["pending", "fetching", "organizing", "completed", "failed"] },
+        "query": { "type": ["string", "null"], "maxLength": 10000 },
+        "topic_config": { "type": "object", "additionalProperties": true },
+        "frequency": { "type": ["string", "null"], "enum": [null, "once", "daily", "weekly", "biweekly", "monthly"] },
+        "status": { "type": "string", "enum": ["pending", "running", "fetching", "organizing", "completed", "failed"] },
         "current_agent": { "type": ["string", "null"], "enum": [null, "planner", "searcher", "organizer", "retriever"] },
         "started_at": { "type": "string", "format": "date-time" },
         "updated_at": { "type": ["string", "null"], "format": "date-time" },
@@ -90,22 +93,33 @@
       }
     },
     "task_subtasks": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": true,
-        "required": ["subtask_id", "keyword", "status"],
-        "properties": {
-          "subtask_id": { "type": "string", "minLength": 1, "maxLength": 128 },
-          "keyword": { "type": "string", "minLength": 1, "maxLength": 240 },
-          "source_sites": {
-            "type": "array",
-            "maxItems": 5,
-            "items": { "type": "string" }
-          },
-          "status": { "type": "string", "enum": ["pending", "running", "succeeded", "failed", "skipped"] },
-          "retry_count": { "type": "integer", "minimum": 0, "maximum": 5 },
-          "error_type": { "type": ["string", "null"] }
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "completed", "failed", "items"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "completed": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["keyword", "status"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+              "subtask_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+              "keyword": { "type": "string", "minLength": 1, "maxLength": 240 },
+              "source_sites": {
+                "type": "array",
+                "maxItems": 5,
+                "items": { "type": "string" }
+              },
+              "status": { "type": "string", "enum": ["pending", "running", "done", "succeeded", "failed", "skipped"] },
+              "retry_count": { "type": "integer", "minimum": 0, "maximum": 5 },
+              "error_type": { "type": ["string", "null"] }
+            }
+          }
         }
       }
     },

@@ -3,16 +3,16 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from redis.asyncio import Redis
 
+from core.config import settings
 from core.redis_client import get_redis
 
 router = APIRouter()
-CAPTCHA_TTL = 600  # 10 分钟
 
 
 @router.post("/captcha/challenge")
 async def get_challenge(redis: Redis = Depends(get_redis)):
     token = uuid.uuid4().hex
-    await redis.setex(f"captcha:{token}", CAPTCHA_TTL, "1")
+    await redis.setex(f"captcha:{token}", settings.CAPTCHA_TTL_SECONDS, "1")
     return {"slider_token": token}
 
 

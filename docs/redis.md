@@ -17,6 +17,7 @@ Redis 只保存临时状态，不作为长期业务事实来源。所有 Redis k
 - Auth、任务工作区、Retriever 会话缓存、语义记忆缓存、LLM 缓存互相隔离。
 - 含 PII 或认证状态的 key 不允许写入普通日志。
 - Agent 工作日志最终归档到 `zr_working_sessions`。
+- 任务工作区写入必须通过 `backend/constraint/storage_contracts/redis/data_schema.json` 校验。
 
 ### 验收标准
 
@@ -39,9 +40,9 @@ Access Token 本身不常驻 Redis，只在登出后写入黑名单。Refresh To
 | 用途 | Key | Owner | 内容 | TTL | 过期设计 |
 |---|---|---|---|---|---|
 | 游客 Session | `session:{session_id}` | `api/auth` | `user_id`、`is_guest`、浏览器指纹、创建时间、最近访问时间 | 7 天 | 每次读取刷新 7 天 |
-| Refresh Token | `refresh_token:{user_id}` | `api/auth` | 当前有效 refresh token 或其 hash | 与 refresh token 有效期一致，当前为 7 天 | 登录/注册/刷新时轮换覆盖 |
+| Refresh Token | `refresh_token:{user_id}` | `api/auth` | 当前有效 refresh token 原值 | 与 refresh token 有效期一致，当前为 7 天 | 登录/注册/刷新时轮换覆盖 |
 | Access Token 黑名单 | `bl_access:{jti}` | `api/auth` | 登出或撤销的 access token `jti` 标记 | access token 剩余寿命 | TTL 到期自动失效 |
-| 滑块验证码 | `captcha:{token}` | `api/captcha` | 验证码挑战标记 | 验证码有效期，当前实现为 `CAPTCHA_TTL` | 验证成功立即删除 |
+| 滑块验证码 | `captcha:{token}` | `api/captcha` | 验证码挑战标记 | 300 秒 | 验证成功立即删除 |
 
 ### 验收标准
 
@@ -86,6 +87,7 @@ Access Token 本身不常驻 Redis，只在登出后写入黑名单。Refresh To
 - 所有 Agent 只能写自己被允许的 `task:{task_id}:*` key。
 - `working_log` 必须能还原任务执行链路。
 - 任务工作区不保存数据库唯一主数据。
+- `backend/core/task_redis.py` 写入 `context`、`subtasks`、`results_raw`、`results_refined`、`working_log` 前必须调用 `validate_redis_value()`。
 
 ## 4. Retriever 会话缓存
 
@@ -186,7 +188,7 @@ Celery 内部 key 由 Celery 管理，业务代码不直接读写。
 | 游客 Session | 7 天，读取时刷新 |
 | Refresh Token | 与 refresh token 有效期一致，当前为 7 天 |
 | Access Token 黑名单 | access token 剩余寿命 |
-| 验证码 | `CAPTCHA_TTL`，验证成功删除 |
+| 验证码 | 300 秒，验证成功删除 |
 | 一次性任务工作区 | 1 小时 |
 | 周期任务工作区 | 30 天 |
 | 报告版本序列 | 2 天 |
@@ -202,9 +204,7 @@ Celery 内部 key 由 Celery 管理，业务代码不直接读写。
 - 任何长期事实都必须落 PostgreSQL。
 - Redis key 过期不应导致用户长期数据丢失。
 
-## 8. 待确认项
+## 8. 已确认决策
 
-1. `[待确认]` 当前代码中 `refresh_token:{user_id}` 保存的是原始 refresh token；目标规范建议保存 hash，避免 Redis 泄露时暴露可用 token。
-暂时就用原值
-2. `[待确认]` `CAPTCHA_TTL` 的具体秒数需要在配置文档中固定。
-CAPTCHA_TTL你觉得多少合适，就给一个默认值
+1. `refresh_token:{user_id}` 暂时保存当前有效 refresh token 原值，不做 hash 存储。
+2. `captcha:{token}` 默认 TTL 固定为 300 秒，对应 `backend/config.toml` 的 `app.captcha_ttl_seconds`。

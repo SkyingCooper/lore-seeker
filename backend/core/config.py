@@ -30,6 +30,7 @@ class TomlSource(PydanticBaseSettingsSource):
             "JWT_EXPIRE_MINUTES": d["app"]["jwt_expire_minutes"],
             "CORS_ORIGINS": d["app"]["cors_origins"],
             "COOKIE_SECURE": d["app"]["cookie_secure"],
+            "CAPTCHA_TTL_SECONDS": d["app"].get("captcha_ttl_seconds", 300),
             # database
             "DATABASE_URL": d["database"]["url"],
             # redis
@@ -89,6 +90,7 @@ class Settings(BaseSettings):
     JWT_EXPIRE_MINUTES: int = 10080
     CORS_ORIGINS: list[str] = []
     COOKIE_SECURE: bool = False
+    CAPTCHA_TTL_SECONDS: int = 300
 
     # Agent LLM
     PLANNER_PROVIDER: Literal["deepseek", "gemini", "openai"] = "deepseek"

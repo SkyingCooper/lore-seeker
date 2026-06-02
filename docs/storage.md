@@ -229,7 +229,8 @@ Agent 记忆拆成五类表，字段按各自查询模式设计。
 当前状态：
 
 - 表结构已建模。
-- 完整写入服务已确认待实现。
+- Redis 工作区归档到 `zr_working_sessions` 已由 `backend/services/memory_manager.py` 提供。
+- 用户偏好写入、Skill 记忆写入和 Skill 使用反馈更新已有基础服务；自动提取和调度仍由记忆管理子 Agent 接入。
 
 记忆淘汰字段：
 
@@ -280,7 +281,7 @@ Redis 只保存临时状态，长期业务数据最终落 PostgreSQL。Redis key
 | 游客 Session | `session:{id}` | 7 天并刷新 |
 | Refresh Token | `refresh_token:{user_id}` | 7 天 |
 | Access Token 黑名单 | `bl_access:{jti}` | access token 剩余寿命 |
-| 滑块验证码 | `captcha:{token}` | `CAPTCHA_TTL`，验证成功删除 |
+| 滑块验证码 | `captcha:{token}` | 300 秒，验证成功删除 |
 | 任务上下文 | `task:{task_id}:context` | 一次性任务 1 小时，周期任务 30 天 |
 | 子任务状态 | `task:{task_id}:subtasks` | 同任务上下文 |
 | 原始结果 | `task:{task_id}:results_raw` | 同任务上下文 |

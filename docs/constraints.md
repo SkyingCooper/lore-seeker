@@ -266,8 +266,13 @@ DB 查询强规则：
 
 1. 将 `validator.py` 接入 Agent handoff，使 Planner/Searcher/Organizer/Retriever 交互自动校验。
 2. 将 Tool 调用统一包一层 contract adapter，禁止直接调用原始函数。
-3. 将 Redis/DB 写入路径接入 storage contract 校验。
+3. 将 DB 写入和查询路径接入 storage contract 校验。
 4. 将 `ContractValidationMiddleware` 按路由启用请求/响应校验。
+
+当前实现：
+
+- `backend/core/task_redis.py` 已在 `task:{task_id}:context`、`subtasks`、`results_raw`、`results_refined`、`working_log` 写入前调用 `validate_redis_value()`。
+- `task:{task_id}:working_log` 已支持 `GuardrailDecision` 摘要，普通通过记录映射为 `info`，warning / critical 由归档服务写入 `log_guardrail`。
 
 ## 6. 已确认决策
 

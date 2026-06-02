@@ -31,7 +31,7 @@ patterns:
   captcha:
     pattern: "captcha:{token}"
     value_schema_ref: "data_schema.json#/definitions/captcha"
-    ttl_seconds: "CAPTCHA_TTL"
+    ttl_seconds: 300
     owner: "api/captcha"
     pii: false
 

@@ -13,6 +13,8 @@ from agents.guardrails import (
     on_error,
 )
 from langchain_core.messages import HumanMessage, SystemMessage
+from agents.token_usage import merge_stage_usage, usage_from_response
+from core.config import settings
 
 
 async def planner_node(state: AgentState) -> dict:
@@ -50,6 +52,12 @@ async def planner_node(state: AgentState) -> dict:
             HumanMessage(content=user_content),
         ]
         resp = await llm.ainvoke(messages)
+        token_usage = merge_stage_usage(
+            state.get("token_usage"),
+            stage="planner",
+            usage=usage_from_response(resp),
+            model=settings.PLANNER_MODEL,
+        )
         try:
             plan = json.loads(resp.content)
         except Exception:
@@ -57,6 +65,7 @@ async def planner_node(state: AgentState) -> dict:
 
         result = {
             "topic_config": {**state["topic_config"], "_plan": plan},
+            "token_usage": token_usage,
             "iteration": state.get("iteration", 0),
         }
         after_run(AgentOutputContext(agent_name="planner", operation=operation, result=result))
@@ -107,6 +116,12 @@ async def quality_check_node(state: AgentState) -> dict:
             HumanMessage(content=user_content),
         ]
         resp = await llm.ainvoke(messages)
+        token_usage = merge_stage_usage(
+            state.get("token_usage"),
+            stage="planner",
+            usage=usage_from_response(resp),
+            model=settings.PLANNER_MODEL,
+        )
         try:
             result = json.loads(resp.content)
         except Exception:
@@ -116,6 +131,7 @@ async def quality_check_node(state: AgentState) -> dict:
             "quality_score": result.get("score", 0),
             "quality_feedback": result.get("feedback", ""),
             "final": result.get("pass", False),
+            "token_usage": token_usage,
             "iteration": state.get("iteration", 0) + 1,
         }
         after_run(AgentOutputContext(agent_name="planner", operation=operation, result=output))

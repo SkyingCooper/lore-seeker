@@ -12,6 +12,8 @@ async def store_report(
     toc: list,
     summary: str | None = None,
     result_count: int = 0,
+    quality_score: float | None = None,
+    token_usage: dict | None = None,
 ) -> Report:
     report = Report(
         topic_id=task.topic_id,
@@ -20,6 +22,8 @@ async def store_report(
         content_md=content_md,
         toc=toc,
         summary=summary,
+        quality_score=quality_score,
+        token_usage=token_usage or {},
         result_count=result_count,
         started_at=datetime.utcnow(),
         finished_at=datetime.utcnow(),
