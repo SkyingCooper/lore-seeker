@@ -1,0 +1,139 @@
+version: "1.0"
+description: "Lore Seeker Agent 可交互声明。所有 Agent 间交互必须使用 agent_contracts/schemas 下的 schema，并遵守 agent_boundaries.yaml。"
+
+contract_files:
+  interaction_schemas:
+    task: "schemas/task_schema.json"
+    result: "schemas/result_schema.json"
+    error: "schemas/error_schema.json"
+  boundary_contract: "agent_boundaries.yaml"
+
+agents:
+  planner:
+    role: "P&E 推理中枢，负责规划、推进、失败总结、记忆沉淀。"
+    accepts:
+      - schema: "schemas/task_schema.json"
+        contract_type: "agent.task"
+        from: ["worker"]
+    emits:
+      - schema: "schemas/task_schema.json"
+        contract_type: "agent.task"
+        to: ["searcher"]
+      - schema: "schemas/result_schema.json"
+        contract_type: "agent.result"
+        to: ["organizer", "worker"]
+      - schema: "schemas/error_schema.json"
+        contract_type: "agent.error"
+        to: ["worker"]
+    state_reads:
+      - "task"
+      - "topic_config"
+      - "preferences"
+    state_writes:
+      - "topic_config._plan"
+      - "subtasks"
+      - "quality_score"
+      - "quality_feedback"
+      - "final"
+    storage:
+      redis:
+        - "task:{task_id}:context"
+        - "task:{task_id}:working_log"
+      db:
+        - "search_tasks"
+        - "zr_user_preferences"
+        - "zr_skill_memories"
+        - "zr_working_sessions"
+
+  searcher:
+    role: "执行型 Agent，负责搜索、爬取、限流、重试、搜索历史和结果初评。"
+    accepts:
+      - schema: "schemas/task_schema.json"
+        contract_type: "agent.task"
+        from: ["planner"]
+    emits:
+      - schema: "schemas/result_schema.json"
+        contract_type: "agent.result"
+        to: ["planner", "organizer"]
+      - schema: "schemas/error_schema.json"
+        contract_type: "agent.error"
+        to: ["planner"]
+    tools:
+      - "search_api"
+      - "crawler"
+    state_reads:
+      - "topic_config._plan"
+      - "source_sites"
+      - "search_mode"
+    state_writes:
+      - "raw_results"
+      - "search_histories"
+      - "search_evaluation"
+    storage:
+      redis:
+        - "task:{task_id}:subtasks"
+        - "task:{task_id}:results_raw"
+        - "task:{task_id}:working_log"
+      db:
+        - "search_histories"
+
+  organizer:
+    role: "报告整理 Agent，负责 Markdown 报告、TOC、摘要和可入库结构。"
+    accepts:
+      - schema: "schemas/result_schema.json"
+        contract_type: "agent.result"
+        from: ["searcher"]
+      - schema: "schemas/task_schema.json"
+        contract_type: "agent.task"
+        from: ["planner"]
+    emits:
+      - schema: "schemas/result_schema.json"
+        contract_type: "agent.result"
+        to: ["planner", "worker"]
+      - schema: "schemas/error_schema.json"
+        contract_type: "agent.error"
+        to: ["planner"]
+    state_reads:
+      - "raw_results"
+      - "expected_chapters"
+      - "quality_feedback"
+    state_writes:
+      - "content_md"
+      - "toc"
+      - "summary"
+    storage:
+      db:
+        - "reports"
+        - "knowledge_chunks"
+
+  retriever:
+    role: "RAG 检索 Agent，负责用户隔离的向量召回、重排序和回答生成。"
+    accepts:
+      - schema: "schemas/task_schema.json"
+        contract_type: "agent.task"
+        from: ["worker"]
+    emits:
+      - schema: "schemas/result_schema.json"
+        contract_type: "agent.result"
+        to: ["worker"]
+      - schema: "schemas/error_schema.json"
+        contract_type: "agent.error"
+        to: ["worker"]
+    state_reads:
+      - "query"
+      - "user_id"
+    storage:
+      db:
+        - "knowledge_chunks"
+        - "reports"
+        - "search_tasks"
+
+rules:
+  default_schema_version: "1.0"
+  unknown_fields: "reject_except_extensions"
+  user_isolation_required: true
+  all_errors_must_use: "schemas/error_schema.json"
+  boundary_contract_required: true
+  direct_agent_call_allowed: false
+  delegation_must_go_through: "orchestrator"
+  responsibility_violation_response: "这不是 {agent} 的职责，请找 {owner_hint}。"

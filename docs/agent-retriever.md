@@ -1,81 +1,138 @@
-# 检索 Agent (Retriever)
+# Retriever Agent 设计
 
-## 职责
+## 1. 模块职责
 
-响应用户的自然语言提问，通过向量检索 + 重排序找到最相关的知识片段，生成有来源依据的回答。
+Retriever 负责对已入库知识进行语义检索，并基于检索结果生成有来源的回答。
 
-## 检索流程
+对应代码：
 
-```
+- `backend/agents/retriever.py`
+- `backend/api/v1/knowledge.py`
+- `backend/core/embedding_router.py`
+
+## 2. RAG 流程
+
+### 背景
+
+用户需要围绕自己的报告和知识库提问，回答必须基于已入库内容，不能跨用户泄露数据。
+
+### 决策
+
+采用“向量召回 → 重排序 → LLM 回答”的 RAG 流程，并在 SQL 层按 `user_id` 隔离。
+
+### 实现要点
+
+流程：
+
+```text
 用户问题
-    │
-    ▼
-向量化（embedding_router）
-    │
-    ▼
-pgvector 余弦相似度检索 → Top-20 候选 chunks
-    │
-    ▼
-重排序模型（reranker）精排 → Top-5
-    │
-    ▼
-LLM 基于上下文生成回答
-    │
-    ▼
-返回：{ answer, sources: [{content, report_id, score}] }
+  -> embedding_router 生成 query 向量
+  -> pgvector 召回 Top-N chunks
+  -> reranker 精排
+  -> LLM 基于 Top-5 chunks 回答
+  -> 返回 answer + sources
 ```
 
-## 向量检索
+隔离查询路径：
 
-使用 pgvector 的 `<=>` 余弦距离算子：
+```text
+knowledge_chunks.report_id
+  -> reports.task_id
+  -> search_tasks.user_id
+  -> current_user.id
+```
+
+SQL 必须包含：
 
 ```sql
-SELECT id, content, report_id, metadata,
-       1 - (embedding <=> :vec::vector) AS score
-FROM knowledge_chunks
-ORDER BY embedding <=> :vec::vector
-LIMIT 20
+JOIN reports r ON r.id = kc.report_id
+JOIN search_tasks st ON st.id = r.task_id
+WHERE st.user_id = :user_id
+  AND st.deleted_at IS NULL
 ```
 
-召回 Top-20 是为了给重排序模型足够的候选集，最终只取 Top-5 送入 LLM。
+详细工作流程：
 
-**当前限制**：检索范围是全库（所有用户的 chunks）。后续需增加 `user_id` 过滤，确保用户只检索自己的知识库。
+1. API 层接收用户自然语言问题。
+2. `knowledge.py` 通过 `require_member` 获取当前用户。
+3. 调用 `retrieve(query, db, user_id, top_k)`。
+4. Retriever 调用 `embedding_router` 生成查询向量。
+5. 使用 pgvector 从 `knowledge_chunks` 召回候选切片。
+6. SQL 通过 `reports` 和 `search_tasks` 关联过滤 `user_id`。
+7. 召回结果放大为 `top_k * 4`，给 reranker 留出候选空间。
+8. 将候选切片正文传给 reranker 精排。
+9. 取前 5 条切片拼接为 LLM 上下文。
+10. LLM 只基于上下文生成回答。
+11. 返回 `answer` 和 `sources`。
+12. `sources` 包含切片内容摘要、`report_id` 和相关性分数。
 
-## 重排序
+### 验收标准
 
-调用 `embedding_router.rerank(query, documents)`，返回按相关性重新排序的结果列表，每项包含 `index`、`score`、`text`。
+- 用户只能检索自己任务生成的知识切片。
+- 游客不能调用 `/api/v1/knowledge/query`。
+- 返回结果包含答案和来源。
 
-重排序模型比向量相似度更精准，能理解语义而非仅匹配向量距离。
+## 3. 向量召回
 
-## 问答生成
+### 背景
 
-**System prompt**：要求 LLM 基于提供的上下文回答，上下文不足时明确说明，不编造。
+向量召回用于从大量切片中快速找到语义接近的候选。
 
-**Context 构建**：将 Top-5 chunks 拼接为编号列表，格式：
+### 决策
+
+使用 pgvector 余弦距离算子 `<=>` 召回候选切片。
+
+### 实现要点
+
+- `top_k` 默认按前端请求放大为 `top_k * 4`。
+- 检索字段为 `KnowledgeChunk.embedding`。
+- 召回结果包含 `id`、`content`、`report_id`、`score`。
+
+SQL 形态：
+
+```sql
+SELECT kc.id,
+       kc.content,
+       kc.report_id,
+       1 - (kc.embedding <=> :query_embedding) AS score
+FROM knowledge_chunks kc
+JOIN reports r ON r.id = kc.report_id
+JOIN search_tasks st ON st.id = r.task_id
+WHERE st.user_id = :user_id
+  AND st.deleted_at IS NULL
+ORDER BY kc.embedding <=> :query_embedding
+LIMIT :limit
 ```
-[1] chunk内容
-[2] chunk内容
-...
-```
 
-**Prompt 策略**：temperature=0.3，保持回答准确性的同时允许适度表达
+### 验收标准
 
-## 相关文件
+- 查询向量生成失败时接口返回错误。
+- 无命中时返回空来源，并由回答逻辑说明上下文不足。
 
-- `backend/agents/retriever.py` — 检索 + 问答实现
-- `backend/api/v1/knowledge.py` — `/query` 接口
-- `backend/core/embedding_router.py` — 向量化 + 重排序路由
+## 4. 重排序与回答
 
----
+### 背景
 
-## 2025-05-27 — 初始设计
+向量距离只能粗召回，最终回答需要更精确的上下文排序。
 
-**背景**：需要支持用户对已入库知识进行自然语言问答。
+### 决策
 
-**决策**：采用"向量召回 → 重排序精排 → LLM 生成"的标准 RAG 流程，召回 Top-20 再精排到 Top-5，平衡召回率和精度。
+召回结果交给 reranker 精排，取前 5 条进入 LLM 上下文。
 
-**待解决**：
-- 检索未做用户隔离，需在 SQL 中加 `user_id` 过滤
-- 未实现多轮对话上下文，每次问答独立
+### 实现要点
 
-**影响范围**：`agents/retriever.py`、`api/v1/knowledge.py`
+- `embedding_router.rerank(query, documents)` 返回排序后的 index 和 score。
+- LLM prompt 明确要求只基于上下文回答。
+- sources 返回每条切片前 200 字、`report_id` 和 rerank score。
+
+### 验收标准
+
+- 回答不得编造上下文外事实。
+- sources 顺序与最终使用上下文一致。
+- rerank score 能回传给前端用于展示。
+
+## 5. 相关文件
+
+- `backend/agents/retriever.py`：检索、重排序和回答生成。
+- `backend/api/v1/knowledge.py`：知识查询 API 和用户权限入口。
+- `backend/core/embedding_router.py`：embedding 与 rerank provider 路由。

@@ -1,0 +1,98 @@
+# 网站差异化搜索策略配置
+# 搜索 Agent 执行时读取，按网站匹配策略
+
+sites:
+  github:
+    api_url: "https://api.github.com/search/repositories"
+    rate_limit: 5000/hour
+    concurrent: 5
+    timeout: 10s
+    parser: "json"
+    auth_required: true
+
+  gitlab:
+    api_url: "https://gitlab.com/api/v4/search"
+    rate_limit: 600/hour
+    concurrent: 3
+    timeout: 10s
+    parser: "json"
+    auth_required: false
+
+  gitee:
+    api_url: "https://gitee.com/api/v5/search/repositories"
+    rate_limit: 500/hour
+    concurrent: 3
+    timeout: 10s
+    parser: "json"
+    auth_required: false
+
+  reddit:
+    api_url: "https://www.reddit.com/search.json"
+    rate_limit: 60/minute
+    concurrent: 2
+    timeout: 15s
+    parser: "json"
+    auth_required: false
+
+  "stack overflow":
+    api_url: "https://api.stackexchange.com/2.3/search"
+    rate_limit: 300/day
+    concurrent: 3
+    timeout: 10s
+    parser: "json"
+    auth_required: false
+
+  arxiv:
+    api_url: "http://export.arxiv.org/api/query"
+    rate_limit: 1/second
+    concurrent: 1
+    timeout: 30s
+    parser: "xml"
+    auth_required: false
+
+  pubmed:
+    api_url: "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+    rate_limit: 3/second
+    concurrent: 3
+    timeout: 10s
+    parser: "xml"
+    auth_required: false
+
+  "google scholar":
+    method: "crawl"
+    rate_limit: 5/minute
+    concurrent: 1
+    timeout: 30s
+    parser: "html"
+    auth_required: false
+
+  "hacker news":
+    api_url: "https://hacker-news.firebaseio.com/v0"
+    rate_limit: 100/minute
+    concurrent: 5
+    timeout: 10s
+    parser: "json"
+    auth_required: false
+
+  custom_website:
+    method: "crawl"
+    rate_limit: 10/minute
+    concurrent: 1
+    timeout: 30s
+    parser: "html"
+    auth_required: false
+
+# 重试策略
+retry_config:
+  max_retries: 3
+  backoff_base: 2
+  backoff_max: 60
+  retryable_errors: ["timeout", "rate_limit", "5xx"]
+  non_retryable_errors: ["404", "403", "invalid_input"]
+
+# 搜索全局配置
+search_config:
+  max_concurrent_total: 10      # 总并发数上限
+  default_timeout: 30           # 默认超时（秒）
+  single_site_timeout: 60       # 单网站超时（秒）
+  min_results_per_site: 5       # 单网站最少结果数

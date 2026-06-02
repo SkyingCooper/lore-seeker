@@ -1,0 +1,7 @@
+{
+  "代码托管": ["GitHub", "GitLab", "Gitee", "Bitbucket", "SourceForge", "GitCode", "Coding.net"],
+  "技术社区": ["Stack Overflow", "Reddit", "Hacker News", "Dev.to", "知乎", "掘金", "SegmentFault", "CSDN"],
+  "学术论文": ["arXiv", "PubMed", "Google Scholar", "IEEE Xplore", "ACM DL", "Semantic Scholar", "知网"],
+  "开源基金会": ["Apache Projects", "Linux Foundation", "CNCF", "Python.org", "Rust社区", "Eclipse Foundation", "OpenJS Foundation"],
+  "新闻资讯": ["TechCrunch", "V2EX", "Product Hunt", "HackerNoon", "36氪", "少数派", "The Verge"]
+}

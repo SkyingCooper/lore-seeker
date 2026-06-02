@@ -1,0 +1,69 @@
+version: "1.0"
+description: "Redis key 约束。Redis 只保存临时状态，长期业务数据必须落 PostgreSQL。"
+
+defaults:
+  namespace_separator: ":"
+  task_once_ttl_seconds: 3600
+  task_periodic_ttl_seconds: 2592000
+
+patterns:
+  session:
+    pattern: "session:{session_id}"
+    value_schema_ref: "data_schema.json#/definitions/session"
+    ttl_seconds: 604800
+    owner: "api/auth"
+    pii: true
+
+  refresh_token:
+    pattern: "refresh_token:{user_id}"
+    value_schema_ref: "data_schema.json#/definitions/refresh_token"
+    ttl_seconds: 604800
+    owner: "api/auth"
+    pii: true
+
+  jwt_blacklist:
+    pattern: "jwt:blacklist:{jti}"
+    value_schema_ref: "data_schema.json#/definitions/jwt_blacklist"
+    ttl_seconds: "access_token_remaining_lifetime"
+    owner: "api/auth"
+    pii: false
+
+  task_context:
+    pattern: "task:{task_id}:context"
+    value_schema_ref: "data_schema.json#/definitions/task_context"
+    ttl_seconds: "by_frequency"
+    owner: "planner"
+    pii: false
+
+  task_subtasks:
+    pattern: "task:{task_id}:subtasks"
+    value_schema_ref: "data_schema.json#/definitions/task_subtasks"
+    ttl_seconds: "by_frequency"
+    owner: "searcher"
+    pii: false
+
+  task_results_raw:
+    pattern: "task:{task_id}:results_raw"
+    value_schema_ref: "data_schema.json#/definitions/task_results"
+    ttl_seconds: "by_frequency"
+    owner: "searcher"
+    pii: false
+
+  task_results_refined:
+    pattern: "task:{task_id}:results_refined"
+    value_schema_ref: "data_schema.json#/definitions/task_results"
+    ttl_seconds: "by_frequency"
+    owner: "organizer"
+    pii: false
+
+  task_working_log:
+    pattern: "task:{task_id}:working_log"
+    value_schema_ref: "data_schema.json#/definitions/working_log"
+    ttl_seconds: "by_frequency"
+    owner: "planner"
+    pii: false
+
+rules:
+  no_business_source_of_truth_in_redis: true
+  task_id_must_match_database_search_tasks_id: true
+  working_log_must_be_archived_to: "zr_working_sessions"

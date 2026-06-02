@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lore-seeker.local/contracts/storage/redis/data_schema.json",
+  "title": "Lore Seeker Redis Data Contract",
+  "type": "object",
+  "definitions": {
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user_id", "is_guest", "created_at"],
+      "properties": {
+        "user_id": { "type": ["integer", "string"] },
+        "is_guest": { "type": "boolean" },
+        "fingerprint": { "type": ["string", "null"], "maxLength": 255 },
+        "created_at": { "type": "string", "format": "date-time" },
+        "last_seen_at": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "refresh_token": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user_id", "token_hash", "expires_at"],
+      "properties": {
+        "user_id": { "type": ["integer", "string"] },
+        "token_hash": { "type": "string", "minLength": 32 },
+        "expires_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "jwt_blacklist": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jti", "revoked_at"],
+      "properties": {
+        "jti": { "type": "string", "minLength": 1 },
+        "revoked_at": { "type": "string", "format": "date-time" },
+        "reason": { "type": ["string", "null"], "maxLength": 255 }
+      }
+    },
+    "task_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id", "user_id", "status", "started_at", "expected_subtask_count"],
+      "properties": {
+        "task_id": { "type": ["integer", "string"] },
+        "user_id": { "type": ["integer", "string"] },
+        "status": { "type": "string", "enum": ["pending", "fetching", "organizing", "completed", "failed"] },
+        "current_agent": { "type": ["string", "null"], "enum": [null, "planner", "searcher", "organizer", "retriever"] },
+        "started_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": ["string", "null"], "format": "date-time" },
+        "expected_subtask_count": { "type": "integer", "minimum": 0 },
+        "completed_subtask_count": { "type": "integer", "minimum": 0, "default": 0 },
+        "plan": { "type": "object", "additionalProperties": true },
+        "failure_reason": { "type": ["string", "null"], "maxLength": 4000 }
+      }
+    },
+    "task_subtasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["subtask_id", "keyword", "status"],
+        "properties": {
+          "subtask_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "keyword": { "type": "string", "minLength": 1, "maxLength": 240 },
+          "source_sites": {
+            "type": "array",
+            "maxItems": 5,
+            "items": { "type": "string" }
+          },
+          "status": { "type": "string", "enum": ["pending", "running", "succeeded", "failed", "skipped"] },
+          "retry_count": { "type": "integer", "minimum": 0, "maximum": 5 },
+          "error_type": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "task_results": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["title", "url", "content"],
+        "properties": {
+          "title": { "type": "string", "minLength": 1 },
+          "url": { "type": "string", "minLength": 1 },
+          "content": { "type": "string", "minLength": 1 },
+          "score": { "type": ["number", "null"], "minimum": 0, "maximum": 1 }
+        }
+      }
+    },
+    "working_log": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["timestamp", "agent", "event"],
+        "properties": {
+          "timestamp": { "type": "string", "format": "date-time" },
+          "agent": { "type": "string", "enum": ["planner", "searcher", "organizer", "retriever", "worker"] },
+          "event": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "payload": { "type": "object", "additionalProperties": true }
+        }
+      }
+    }
+  }
+}

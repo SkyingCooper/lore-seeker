@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from core.config import settings
 from core.database import engine, Base
-from api.v1 import auth, captcha, users, search, reports, knowledge
+from api.v1 import auth, captcha, tasks, users, search, reports, knowledge
 
 
 @asynccontextmanager
@@ -31,6 +31,7 @@ app.add_middleware(
 app.include_router(captcha.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["users"])
+app.include_router(tasks.router, prefix="/api/v1/tasks", tags=["tasks"])
 app.include_router(search.router, prefix="/api/v1/search", tags=["search"])
 app.include_router(reports.router, prefix="/api/v1/reports", tags=["reports"])
 app.include_router(knowledge.router, prefix="/api/v1/knowledge", tags=["knowledge"])

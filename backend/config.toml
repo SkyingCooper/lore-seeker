@@ -17,9 +17,25 @@ url = "postgresql+asyncpg://loreseeker:loreseeker@db:5432/loreseeker"
 [redis]
 url = "redis://redis:6379/0"
 
-# ===== LLM 路由 =====
-[llm]
+# ===== Agent LLM 配置 =====
+[agent.planner]
+# 规划 Agent 大模型（P&E 推理，拆解任务）
+provider = "deepseek"
+model = "deepseek-chat"
+
+[agent.searcher]
+# 搜索 Agent 小模型（评估结果相关性、调整搜索策略）
+provider = "deepseek"
+model = "deepseek-chat"
+
+[agent.organizer]
+# 梳理 Agent 大模型（整理报告、打分）
+provider = "deepseek"
+model = "deepseek-chat"
+
+# ===== LLM 供应商 =====
 # 可选: deepseek | gemini | openai
+[llm]
 default_provider = "deepseek"
 
 [llm.deepseek]
@@ -27,6 +43,7 @@ base_url = "https://api.deepseek.com"
 model = "deepseek-chat"
 
 [llm.gemini]
+base_url = "https://generativelanguage.googleapis.com/v1beta"
 model = "gemini-2.0-flash"
 
 [llm.openai]
@@ -40,6 +57,14 @@ provider = "dashscope"
 
 [embedding.dashscope]
 model = "text-embedding-v3"
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+[embedding.openai]
+model = "text-embedding-3-small"
+
+[embedding.jina]
+model = "jina-embeddings-v3"
+base_url = "https://api.jina.ai/v1"
 
 # ===== 重排序模型 =====
 [reranker]
@@ -48,13 +73,49 @@ provider = "dashscope"
 
 [reranker.dashscope]
 model = "gte-rerank"
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
-# ===== 搜索 =====
+[reranker.jina]
+model = "jina-reranker-v2-base-multilingual"
+base_url = "https://api.jina.ai/v1"
+
+# ===== 搜索 API 工具 =====
 [search]
 # 可选: tavily | serpapi | bing
 api_provider = "tavily"
+
+[search.tavily]
+base_url = "https://api.tavily.com/search"
+
+[search.serpapi]
+base_url = "https://serpapi.com/search"
+
+[search.bing]
+base_url = "https://api.bing.microsoft.com/v7.0/search"
 
 # ===== 爬虫 =====
 [crawler]
 enabled = true
 headless = true
+user_agent = "LoreSeeker/1.0"
+request_delay_ms = 1000
+
+# 站点限流策略暂时放在配置文件中，不进入数据库。
+[crawler.site_policies.default]
+concurrency_limit = 2
+request_delay_ms = 1000
+timeout_seconds = 60
+max_retries = 3
+backoff = "exponential"
+
+[crawler.site_policies.github]
+concurrency_limit = 2
+request_delay_ms = 1500
+timeout_seconds = 60
+max_retries = 3
+backoff = "exponential"
+
+# ===== 站点 API 密钥（非敏感标记，实际 key 在 .env） =====
+[site_tokens]
+# GitHub Personal Access Token（用于 API 搜索，提高限流配额）
+github_enabled = false

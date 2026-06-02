@@ -51,7 +51,7 @@
   </div>
 </template>
 
-<script setup lang=”ts”>
+<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { UserRound } from '@lucide/vue'
 import api from '@/api/client'

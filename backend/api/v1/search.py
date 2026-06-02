@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, BackgroundTasks
+from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
@@ -13,23 +13,22 @@ router = APIRouter()
 
 
 class TopicCreate(BaseModel):
-    name: str
+    title: str
+    keywords: List[str] = []
     description: str | None = None
-    target_sites: List[str] = []
-    search_mode: str = "api"
 
 
 class SearchRequest(BaseModel):
     query: str
     topic_id: str | None = None
     search_mode: str = "api"
-    target_sites: List[str] = []
+    source_sites: List[str] = []
 
 
 @router.get("/topics")
 async def list_topics(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Topic).where(Topic.user_id == current_user.id))
-    return [{"id": str(t.id), "name": t.name, "description": t.description, "target_sites": t.target_sites} for t in result.scalars()]
+    return [{"id": str(t.id), "title": t.title, "keywords": t.keywords, "description": t.description} for t in result.scalars()]
 
 
 @router.post("/topics")
@@ -38,7 +37,7 @@ async def create_topic(body: TopicCreate, current_user: User = Depends(require_m
     db.add(topic)
     await db.commit()
     await db.refresh(topic)
-    return {"id": str(topic.id), "name": topic.name}
+    return {"id": str(topic.id), "title": topic.title}
 
 
 @router.post("/start")
@@ -47,18 +46,31 @@ async def start_search(
     current_user: User = Depends(require_member),
     db: AsyncSession = Depends(get_db),
 ):
-    topic_config: dict = {"search_mode": body.search_mode, "target_sites": body.target_sites}
-
+    # 解析 topic：快速搜索自动创建临时主题
     if body.topic_id:
         topic = await db.get(Topic, int(body.topic_id))
-        if topic and topic.user_id == current_user.id:
-            topic_config = {
-                "search_mode": topic.search_mode,
-                "target_sites": topic.target_sites,
-                "description": topic.description,
-            }
+        if not topic or topic.user_id != current_user.id:
+            raise HTTPException(404, "Topic not found")
+    else:
+        topic = Topic(user_id=current_user.id, title=body.query, keywords=[body.query])
+        db.add(topic)
+        await db.commit()
+        await db.refresh(topic)
 
-    task = SearchTask(user_id=current_user.id, query=body.query, topic_id=int(body.topic_id) if body.topic_id else None)
+    topic_config = {
+        "search_mode": body.search_mode,
+        "source_sites": body.source_sites,
+        "keywords": topic.keywords,
+        "description": topic.description,
+    }
+
+    task = SearchTask(
+        user_id=current_user.id,
+        topic_id=topic.id,
+        query=body.query,
+        source_sites=body.source_sites,
+        search_mode=body.search_mode,
+    )
     db.add(task)
     await db.commit()
     await db.refresh(task)
@@ -74,4 +86,4 @@ async def get_task_status(task_id: str, current_user: User = Depends(get_current
     if not task or task.user_id != current_user.id:
         from fastapi import HTTPException
         raise HTTPException(404, "Task not found")
-    return {"task_id": str(task.id), "status": task.status, "quality_score": task.quality_score}
+    return {"task_id": str(task.id), "status": task.status}

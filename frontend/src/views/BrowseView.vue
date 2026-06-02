@@ -48,17 +48,17 @@
 
         <div class="flex flex-wrap items-center gap-3 text-sm text-neutral-500">
           <n-select v-model:value="searchMode" class="min-w-[160px]" :options="searchModeOptions" />
-          <n-button tertiary circle>
+          <n-button tertiary circle @click="message.info(copy.filterPending)">
             <template #icon>
               <Funnel :size="17" />
             </template>
           </n-button>
-          <n-button tertiary circle>
+          <n-button tertiary circle @click="startSearch">
             <template #icon>
               <Search :size="17" />
             </template>
           </n-button>
-          <n-button tertiary circle>
+          <n-button tertiary circle @click="message.info(copy.displayPending)">
             <template #icon>
               <SlidersHorizontal :size="17" />
             </template>
@@ -105,7 +105,7 @@
               <FilePenLine :size="18" />
             </div>
             <div class="min-w-0">
-              <div class="truncate text-[15px] font-medium text-neutral-900">{{ report.title }}</div>
+              <div class="truncate text-[15px] font-medium text-neutral-900">{{ report.title || `${copy.reportNo} #${report.id}` }}</div>
               <div class="mt-1 truncate text-sm text-neutral-500">{{ report.summary || copy.emptySummary }}</div>
             </div>
           </div>
@@ -124,7 +124,7 @@
 // 这里的结构参考 Notion 的数据库工作页，但保留 Lore Seeker 自己的动作语义和视觉标识。
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { NAlert, NButton, NEmpty, NInput, NSelect } from 'naive-ui'
+import { NAlert, NButton, NEmpty, NInput, NSelect, useMessage } from 'naive-ui'
 import {
   BadgeInfo,
   CircleUserRound,
@@ -150,10 +150,12 @@ interface ReportListItem {
   summary: string | null
   created_at?: string
   quality_score?: number | null
+  status?: string
 }
 
 const locale = useLocaleStore()
 const router = useRouter()
+const message = useMessage()
 
 const query = ref('')
 const searchMode = ref('api')
@@ -185,8 +187,11 @@ const copy = computed(() =>
         shared: '已共享',
         privateTab: '私人',
         reportSource: '知识报告',
+        reportNo: '报告',
         owner: '你',
         taskStatus: (id: string, status: string) => `任务 ${id}... 状态：${status}`,
+        filterPending: '筛选面板后续会接入更多维度，当前列表已按时间排序。',
+        displayPending: '显示设置后续会支持列配置，当前使用默认表格。',
       }
     : {
         sectionLabel: 'Workspace',
@@ -208,8 +213,11 @@ const copy = computed(() =>
         shared: 'Shared',
         privateTab: 'Private',
         reportSource: 'Knowledge report',
+        reportNo: 'Report',
         owner: 'You',
         taskStatus: (id: string, status: string) => `Task ${id}... status: ${status}`,
+        filterPending: 'More filter dimensions will be added later. The list is currently sorted by time.',
+        displayPending: 'Display settings will support column configuration later. The default table is active.',
       }
 )
 
@@ -223,7 +231,7 @@ const viewTabs = computed(() => [
 const searchModeOptions = computed(() => [
   { label: locale.isChinese ? 'API 搜索' : 'API search', value: 'api' },
   { label: locale.isChinese ? '爬虫扫描' : 'Crawler', value: 'crawl' },
-  { label: locale.isChinese ? '混合模式' : 'Hybrid', value: 'both' },
+  { label: locale.isChinese ? '混合模式' : 'Hybrid', value: 'mixed' },
 ])
 
 const ownerLabel = computed(() => copy.value.owner)
@@ -256,9 +264,9 @@ function pollTask(id: string) {
   const timer = setInterval(async () => {
     const res = await api.get(`/api/v1/search/tasks/${id}`)
     taskStatus.value = res.data.status
-    if (res.data.status === 'done' || res.data.status === 'failed') {
+    if (res.data.status === 'completed' || res.data.status === 'done' || res.data.status === 'failed') {
       clearInterval(timer)
-      if (res.data.status === 'done') {
+      if (res.data.status === 'completed' || res.data.status === 'done') {
         loadReports()
       }
     }

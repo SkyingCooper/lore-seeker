@@ -47,4 +47,23 @@ def build_graph():
     return g.compile()
 
 
-graph = build_graph()
+_graph = None
+
+
+def get_graph():
+    """Lazily build the LangGraph instance to avoid Agent import cycles."""
+
+    global _graph
+    if _graph is None:
+        _graph = build_graph()
+    return _graph
+
+
+class LazyAgentGraph:
+    """Proxy used by existing worker code while keeping graph construction lazy."""
+
+    async def ainvoke(self, state: AgentState):
+        return await get_graph().ainvoke(state)
+
+
+graph = LazyAgentGraph()

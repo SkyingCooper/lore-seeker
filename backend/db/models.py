@@ -32,10 +32,10 @@ class Topic(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"))
-    name: Mapped[str] = mapped_column(String(255))
+    title: Mapped[str] = mapped_column(String(255))
+    keywords: Mapped[list] = mapped_column(JSON, default=list)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    target_sites: Mapped[list] = mapped_column(JSON, default=list)
-    search_mode: Mapped[str] = mapped_column(String(20), default="api")
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -48,18 +48,20 @@ class SearchTask(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"))
-    topic_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("topics.id"), nullable=True)
-    query: Mapped[str] = mapped_column(Text)
+    topic_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("topics.id"))
+    query: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_sites: Mapped[list] = mapped_column(JSON, default=list)
+    search_mode: Mapped[str] = mapped_column(String(20), default="api")
+    frequency: Mapped[str] = mapped_column(String(20), default="once")
     status: Mapped[str] = mapped_column(String(20), default="pending")
-    quality_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     user: Mapped["User"] = relationship(back_populates="search_tasks")
-    topic: Mapped["Topic | None"] = relationship(back_populates="search_tasks")
-    report: Mapped["Report | None"] = relationship(back_populates="task", uselist=False)
-    history: Mapped["SearchHistory | None"] = relationship(back_populates="task", uselist=False)
+    topic: Mapped["Topic"] = relationship(back_populates="search_tasks")
+    reports: Mapped[list["Report"]] = relationship(back_populates="task")
+    histories: Mapped[list["SearchHistory"]] = relationship(back_populates="task")
     working_sessions: Mapped[list["WorkingSession"]] = relationship(back_populates="task")
 
 
@@ -67,15 +69,26 @@ class Report(Base):
     __tablename__ = "reports"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    task_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("search_tasks.id"), unique=True)
-    title: Mapped[str] = mapped_column(String(500))
-    content_md: Mapped[str] = mapped_column(Text)
+    topic_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("topics.id"))
+    task_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("search_tasks.id"))
+    status: Mapped[str] = mapped_column(String(20), default="success")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    execution_duration: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    result_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    quality_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    content_md: Mapped[str | None] = mapped_column(Text, nullable=True)
     toc: Mapped[list] = mapped_column(JSON, default=list)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    user_satisfaction: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    satisfaction_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
-    task: Mapped["SearchTask"] = relationship(back_populates="report")
+    task: Mapped["SearchTask"] = relationship(back_populates="reports")
     chunks: Mapped[list["KnowledgeChunk"]] = relationship(back_populates="report", cascade="all, delete-orphan")
+    histories: Mapped[list["SearchHistory"]] = relationship(back_populates="report")
 
 
 class KnowledgeChunk(Base):
@@ -84,6 +97,10 @@ class KnowledgeChunk(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     report_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("reports.id"))
     chunk_index: Mapped[int] = mapped_column(Integer)
+    section_title: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    section_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    section_anchor: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    parent_title: Mapped[str | None] = mapped_column(String(500), nullable=True)
     content: Mapped[str] = mapped_column(Text)
     embedding: Mapped[list[float]] = mapped_column(Vector(1536))
     metadata_: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
@@ -95,22 +112,24 @@ class SearchHistory(Base):
     __tablename__ = "search_histories"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    parent_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("search_histories.id"), nullable=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"))
-    task_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("search_tasks.id"), unique=True)
+    task_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("search_tasks.id"))
     topic_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("topics.id"), nullable=True)
     report_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("reports.id"), nullable=True)
     query: Mapped[str] = mapped_column(Text)
+    raw_results: Mapped[list] = mapped_column(JSON, default=list)
     version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     user: Mapped["User"] = relationship(back_populates="search_histories")
-    task: Mapped["SearchTask"] = relationship(back_populates="history")
+    task: Mapped["SearchTask"] = relationship(back_populates="histories")
     topic: Mapped["Topic | None"] = relationship()
-    report: Mapped["Report | None"] = relationship()
+    report: Mapped["Report | None"] = relationship(back_populates="histories")
 
 
 class WorkingSession(Base):
-    __tablename__ = "working_sessions"
+    __tablename__ = "zr_working_sessions"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"))
@@ -129,7 +148,7 @@ class WorkingSession(Base):
 
 
 class EpisodicLog(Base):
-    __tablename__ = "episodic_logs"
+    __tablename__ = "zr_episodic_logs"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"))
@@ -144,7 +163,7 @@ class EpisodicLog(Base):
 
 
 class SemanticMemory(Base):
-    __tablename__ = "semantic_memories"
+    __tablename__ = "zr_semantic_memories"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=True)
@@ -160,7 +179,7 @@ class SemanticMemory(Base):
 
 
 class UserPreference(Base):
-    __tablename__ = "user_preferences"
+    __tablename__ = "zr_user_preferences"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"))
@@ -175,7 +194,7 @@ class UserPreference(Base):
 
 
 class SkillMemory(Base):
-    __tablename__ = "skill_memories"
+    __tablename__ = "zr_skill_memories"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(String(255))

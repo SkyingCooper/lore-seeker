@@ -1,354 +1,279 @@
 # 前端设计
 
-## 技术框架
-
-- Vue 3
-- TypeScript
-- Vite
-- Tailwind CSS
-- Naive UI
-- @lucide/vue
-- Pinia
-- Vue Router
-- Axios
-- md-editor-v3
-
-## 视觉与交互基线
-
-- 整体参考 Notion：克制灰阶、低对比边框、阅读优先、大留白
-- 组件层优先使用 Naive UI，页面排版和间距控制交给 Tailwind
-- 图标统一使用 `@lucide/vue`，避免按钮、导航和状态区域只剩纯文字
-- Markdown 阅读体验继续由 `md-editor-v3` 承担，不自行实现渲染器
-
-## 搭建说明
-
-1. 安装依赖：`cd frontend && npm install`
-2. 本地开发：`npm run dev`
-3. 生产构建：`npm run build`
-
-当前关键接入点：
-- `vite.config.ts`：注册 `@tailwindcss/vite`
-- `src/main.ts`：引入 `src/style.css` 和 `md-editor-v3` 样式
-- `src/App.vue`：挂载 Naive UI 的 Config / Message / Dialog / Notification Provider
-- `src/theme/naive.ts`：集中维护 Notion 风格的 Naive UI 主题覆盖
-- `src/style.css`：维护 Tailwind 入口和全局设计 token
-- `@lucide/vue`：为导航、按钮、视图标签、状态区块提供统一图标
-- `src/assets/logo-book.avif` / `src/assets/logo-word.avif`：当前前端主用品牌资源，分别用于图标 mark 和 wordmark
-- `tsconfig.json` / `tsconfig.node.json` / `src/env.d.ts`：保证 `vue-tsc` 和 `vite build` 可执行
-
-## 页面结构
-
-```
-/login              登录页（游客 / 注册 / 登录）
-/browse             首页工作区（搜索入口 + 数据库式报告列表）
-/browse/:reportId   报告阅读页（左侧 TOC + 右侧 Markdown）
-/chat               与 Lore Seeker 对话入口
-/inbox              收件箱 / 通知入口
-/profile            个人信息页
-/reports            报告历史列表页
-/settings           设置页（主题管理 + 偏好编辑）
-```
-
-未登录时访问 `/browse` 等需要认证的路由，路由守卫自动触发游客登录（浏览器指纹），无感知跳转。
-
-## 组件设计
-
-### MainLayout
-
-Notion 风格工作台壳子，左侧固定导航，右侧内容区阅读优先。
-
-左侧拆成两层：
-- **状态栏**：品牌 icon、当前用户名（游客显示“游客”）、下拉箭头、独立的侧栏折叠按钮
-- **工具栏**：主页、与 Lore Seeker 对话、收件箱、搜索、中英切换
-- **内容层**：工具栏下方拆成两段，先是帮助 / 任务 / 知识库 / 垃圾箱，再是“我的分类”折叠分组和文件夹操作菜单
-
-交互约定：
-- 展开态下，状态栏中的 logo 和用户名分开布局，logo 按原始比例显示，避免被挤压变形
-- 收缩态下，只保留清晰的图标按钮列；顶部品牌按钮和主页按钮都可直接展开侧边栏
-- 工具栏按钮统一使用 tooltip 暴露名称，不依赖页面常驻文字
-- 身份入口点击后弹出账户层，包含设置、个人信息、语言切换，以及游客的注册/登录或正式用户的登出动作
-- “我的分类”标题左侧带折叠按钮，右侧 `...` 操作菜单提供“添加文件夹 / 删除文件夹”入口，当前先保留前端占位交互
-
-当前已补上 `ChatView`、`InboxView`、`ProfileView` 三个页面壳子，避免工具栏和账户层出现“有入口无落点”的状态。
-
-当前使用自定义圆角导航项、工具栏图标和会话卡片，提升识别度和轻盈感。
-
-最近一轮针对侧栏又补了两条约束：
-- 状态栏的品牌 logo 固定在左上角，独立于用户名按钮，避免图标被文字容器挤压变形
-- 状态栏、工具栏和收缩态图标统一放大一档，并同步增加按钮尺寸和间距，保证图标尺度与容器匹配
-- 状态栏、工具栏、工作区列表和底部会话卡片的上下留白统一拉开，避免局部拥挤和图标漂浮感
-- 侧栏最下方不再展示 workspace 卡片，只保留单一的“开启对话”入口，避免信息重复和底部噪音
-- 侧栏布局继续向 Notion 的紧凑列表风格收敛：减少大卡片包裹、缩小纵向间距、让工具区和列表区更像连续工作区而不是独立面板
-- 右下角圆形按钮语义调整为“创建任务”，用于发起用户输入主题和地址的搜索任务；悬浮提示不再显示“开启对话”
+本文档负责前端技术栈、路由、主布局、状态管理和页面交互细节。系统级架构见 `DESIGN_SUMMARY.md` 和 `overview.md`。
 
-### LoginView
+## 1. 技术基线
 
-支持三种操作：
-1. 游客继续（浏览器指纹自动登录）
-2. 注册（邮箱 + 密码）
-3. 登录（已注册用户）
+### 背景
 
-登录页采用双栏结构：左侧是产品说明，右侧是表单卡片，作为整个前端风格的第一屏样板。
-
-当前已接入完整品牌 logo，并支持中英文文案切换。
+前端需要同时承载工作台导航、搜索任务创建、报告阅读、知识问答、设置和账户管理。界面需要接近 Notion 的高频工具体验，但保留 Lore Seeker 的品牌和研究系统属性。
 
-### BrowseView
-
-- 作为首页工作区，整体参考 Notion 的数据库页面
-- 顶部动作区：新搜索输入框 + 新页面按钮
-- 视图切换条：最近 / 星标 / 已共享 / 私人
-- 列表区：数据库式表头和行项目，展示页面名、创建者、来源、上次编辑时间
-- 任务状态条：显示当前任务 ID 和状态，3 秒轮询
-- 视图标签、筛选按钮、表头和报告项统一带图标，减轻“纯表格文本”的僵硬感
+### 决策
 
-### ReportView（核心阅读体验）
+前端使用 Vue 3 + TypeScript + Vite + Tailwind + Naive UI，状态管理使用 Pinia，Markdown 报告使用 `md-editor-v3` 渲染，图标统一使用 `@lucide/vue`。
 
-暖色调双栏阅读布局：
-- 左侧：报告元信息 + TOC 导航，点击平滑滚动
-- 右侧：阅读头部 + `MdPreview`（md-editor-v3）正文渲染
-- 接入中英文文案切换，与首页保持一致的工作区视觉基线
-- 品牌 mark、返回动作和元信息图标已经接入，阅读页不再是“纯文本面板”
+### 实现要点
 
-```
-┌──────────────┬──────────────────────────────────────┐
-│   目录        │  # 文档标题                           │
-│              │                                       │
-│  ## 章节一   │  ## 章节一                             │
-│    ### 小节  │  内容...                               │
-│  ## 章节二   │                                       │
-│              │  ### 小节                              │
-│              │  内容...                               │
-└──────────────┴──────────────────────────────────────┘
-```
+| 技术 | 职责 |
+|---|---|
+| Vue 3 | 页面和组件组织 |
+| TypeScript | 前端类型约束 |
+| Vite | 本地开发和构建 |
+| Tailwind CSS | 页面布局、间距、响应式样式 |
+| Naive UI | 表单、弹层、按钮、消息、菜单 |
+| Pinia | 认证状态、语言状态 |
+| Vue Router | 路由与访问守卫 |
+| Axios | API 客户端与 token 刷新 |
+| md-editor-v3 | Markdown 报告渲染 |
+| @lucide/vue | 工具栏、菜单、列表图标 |
 
-### SettingsView
+核心目录：
 
-两个区块：
-1. **主题管理**：列表展示已有主题，表单新增（名称、描述、目标网站、搜索模式）
-2. **个性化偏好**：JSON 编辑器展示 Agent 总结的偏好，用户可手动修改
+| 路径 | 职责 |
+|---|---|
+| `src/main.ts` | 应用初始化 |
+| `src/App.vue` | Naive Provider 和全局挂载 |
+| `src/router/index.ts` | 路由表和访问守卫 |
+| `src/layouts/MainLayout.vue` | 工作台主框架 |
+| `src/views/` | 页面级组件 |
+| `src/stores/` | Pinia store |
+| `src/api/client.ts` | Axios 实例 |
+| `src/theme/naive.ts` | Naive UI 主题 |
+| `src/style.css` | 全局样式和 Markdown 覆盖 |
 
-## 状态管理
+### 验收标准
 
-使用 Pinia。当前已落地的 store：
+- `cd frontend && npm run build` 通过。
+- 新页面继续使用 Vue 3 Composition API + TypeScript。
+- 通用控件优先使用 Naive UI，图标优先使用 lucide。
 
-**`auth.ts`**：
-- `token`、`userId`、`isGuest` 持久化到 `localStorage`
-- `guestLogin()`：调用 FingerprintJS 获取指纹，请求 `/auth/guest`
-- `register()` / `login()` / `logout()`
-- 初始化时自动从 localStorage 恢复 token 并设置 axios 默认 Header
+## 2. 路由与页面
 
-**`locale.ts`**：
-- 管理 `zh-CN / en-US` 切换
-- 语言选择持久化到 `localStorage`
-- 当前为主布局、首页、报告页、报告列表页、设置页提供中英文文案切换基础
+### 背景
 
-## API 客户端
+系统从报告浏览扩展为完整工作台，需要清晰的页面归属和认证守卫。
 
-`src/api/client.ts`：axios 实例，`baseURL='/'`，通过 Vite proxy 转发到后端。
+### 决策
 
-Token 注入：在 `auth.ts` 的 `setAuth()` 中直接设置 `api.defaults.headers.common['Authorization']`。
+`/login` 独立展示；其他页面挂载在 `MainLayout` 下。进入工作台时优先保证存在用户身份，未登录用户通过游客会话进入只读体验。
 
-## 相关文件
+### 实现要点
 
-- `frontend/src/router/index.ts` — 路由定义 + 守卫
-- `frontend/src/stores/auth.ts` — 认证状态
-- `frontend/src/stores/locale.ts` — 中英文切换状态
-- `frontend/src/api/client.ts` — axios 实例
-- `frontend/src/theme/naive.ts` — Naive UI 主题覆盖
-- `frontend/src/style.css` — Tailwind 入口 + 全局 token
-- `frontend/src/assets/` — Logo、品牌图形等静态资源
-- `frontend/src/layouts/MainLayout.vue`
-- `frontend/src/views/` — 各页面组件
+| 路由 | 页面 | 职责 |
+|---|---|---|
+| `/login` | `LoginView` | 注册、登录、游客入口 |
+| `/browse` | `BrowseView` | 首页、快速研究搜索 |
+| `/browse/:reportId` | `ReportView` | Markdown 报告阅读 |
+| `/community` | `CommunityView` | 协作社区入口 |
+| `/reports` | `ReportsView` | 报告列表 |
+| `/tasks` | `TasksView` | 任务列表 |
+| `/tasks/new` | `TaskCreateView` | 创建任务 |
+| `/tasks/:id` | `TaskDetailView` | 任务详情、启动、重试 |
+| `/settings` | `SettingsView` | 主题和偏好配置 |
+| `/profile` | `ProfileView` | 个人信息 |
+| `/chat` | `ChatView` | AI 对话入口 |
+| `/inbox` | `InboxView` | 收件箱 |
+| `/help` | `HelpView` | 使用帮助 |
+| `/trash` | `TrashView` | 垃圾箱 |
 
----
+访问规则：
 
-## 2026-05-29 — 接入 Naive UI 并建立 Notion 风格基线
+- 工作台路由进入前检查 `auth` 状态。
+- 游客可以浏览公开或只读内容。
+- 写操作遇到 `GUEST_FORBIDDEN` 时跳转登录页。
 
-**背景**：前端技术约定补充为 Vue 3 + TypeScript + Vite + Tailwind + Naive UI + Pinia + md-editor-v3，同时要求整体体验参考 Notion。
+### 验收标准
 
-**决策**：
-- 引入 `naive-ui` 作为统一组件层，根组件挂载 Config / Message / Dialog / Notification Provider
-- 新增 `src/theme/naive.ts` 统一覆盖组件主题，颜色和边框风格向 Notion 靠拢
-- 用 Tailwind 管理布局、间距和页面级排版，保留 Naive UI 负责表单、卡片、表格、消息等交互部件
-- 首批切换 `App`、`MainLayout`、`LoginView`、`BrowseView`、`ReportsView`、`SettingsView`
+- 未登录访问工作台时能建立游客身份。
+- 游客触发写操作时有明确登录引导。
+- 侧边栏主要入口都有明确路由；无后端能力的入口必须给出可执行的替代路径。
 
-**放弃的方案**：
-- 继续只靠 scoped CSS 逐页维护：组件形态和交互细节难统一
-- 全部样式都压到 Naive UI theme：页面布局和响应式细节仍需要 Tailwind 处理
+## 3. 主布局
 
-**影响范围**：`frontend/package.json`、`frontend/src/App.vue`、`frontend/src/layouts/MainLayout.vue`、`frontend/src/views/LoginView.vue`、`frontend/src/views/BrowseView.vue`、`frontend/src/views/ReportsView.vue`、`frontend/src/views/SettingsView.vue`、`frontend/src/theme/naive.ts`
+### 背景
 
----
+左侧工作台是系统最高频区域，需要紧凑、图标清晰、可展开收缩，并能承载品牌、工具栏、模块入口和底部任务入口。
 
-## 2026-05-29 — 首页改为数据库式工作页并支持中英文切换
+### 决策
 
-**背景**：首页需要更接近 Notion 工作区页面，而不是传统仪表盘；同时要求支持页面中英文切换。
+`MainLayout` 分为状态栏、工具栏、内容层和底部动作区。展开态显示完整品牌与分类；收缩态保留图标导航和任务入口。
 
-**决策**：
-- 将 `/browse` 重构为数据库式工作页，视觉上参考 Notion 的 library / recents 页面
-- 不拷贝 Notion logo 和专有标志，只借鉴信息组织、密度和布局节奏
-- 新增 `locale.ts` Pinia store，使用 `localStorage` 持久化中英文选择
-- 在 `MainLayout` 中放置语言切换入口，并先覆盖布局和首页文案
+### 实现要点
 
-**放弃的方案**：
-- 直接引入完整 i18n 框架：当前只需要轻量中英文切换，先避免额外依赖
-- 在页面内零散管理语言状态：后续扩展到其他页面时会重复且不一致
+状态栏：
 
-**影响范围**：`frontend/src/stores/locale.ts`、`frontend/src/layouts/MainLayout.vue`、`frontend/src/views/BrowseView.vue`
+- 展开态品牌使用 `logo-book.avif` 和 `logo-word.avif`。
+- 收缩态顶部品牌图使用 `logo-book-anti.avif`。
+- 无头像用户显示用户名第一个字母或汉字，游客显示 `G`。
+- 默认头像使用偏暖的深底色，并带浅阴影区分背景。
+- 头像右侧箭头打开账户弹窗。
 
----
+账户弹窗：
 
-## 2026-05-29 — 报告阅读页接入统一工作区风格
+- 游客展示头像、名称、引导文案、注册、登录、语言切换。
+- 注册用户展示头像、名称、账户信息、协作社区、设置、退出登录、语言切换。
+- 游客和注册用户使用同一视觉结构，不使用品牌 logo 代替头像。
 
-**背景**：首页已经切到数据库式工作页，但报告阅读页仍保留早期占位样式，和新的首页、主布局不一致。
+工具栏：
 
-**决策**：
-- 保留“左侧目录 + 右侧正文”的阅读模型
-- 将配色、边框、阴影和头部信息切换到统一的暖白工作区风格
-- 接入 `locale.ts`，让阅读页文案参与中英文切换
+- 首页。
+- 知识库或收件箱入口。
+- 搜索。
+- 中英文切换。
+- 收缩 / 展开侧边栏。
+- 工具按钮使用圆形图标按钮，hover 显示名称。
 
-**放弃的方案**：
-- 将阅读页改成单栏长文：会丢失知识报告的结构导航能力
-- 只改颜色不改信息头部：页面层次仍然不完整
+内容层：
 
-**影响范围**：`frontend/src/views/ReportView.vue`、`docs/frontend.md`
+- 第一层固定入口：任务、知识库、帮助、垃圾箱。
+- 第二层为“我的分类”：左侧箭头控制展开收缩，右侧 `...` 打开分类菜单。
+- 分类菜单操作包含新增分类。
+- 分类展开时展示用户分类列表；收缩时只保留标题行。
 
----
+底部动作区：
 
-## 2026-05-29 — 统一剩余页面文案与 Markdown 阅读样式
+- 展开态显示“开启任务”按钮。
+- 收缩态显示任务图标按钮。
+- hover 提示为“创建任务”。
 
-**背景**：首页和阅读页已经接入新的工作区风格，但报告列表页、设置页和 Markdown 正文细节仍未完全收口。
+### 验收标准
 
-**决策**：
-- 将 `ReportsView` 和 `SettingsView` 的标题、按钮、空状态、提示语接到 `locale.ts`
-- 在 `src/style.css` 中增加 `md-editor-v3` 预览区覆盖样式，统一标题层级、代码块、引用块和表格的阅读观感
+- 展开和收缩状态下 logo 不变形、不带多余背景底格。
+- 状态栏品牌图、wordmark、头像在同一视觉基线上。
+- 工具栏图标尺寸、圆形背景和间距一致。
+- 收缩态不再出现包裹所有按钮的大胶囊背景。
+- 所有图标按钮都有 tooltip，且 tooltip 不遮挡按钮主体。
 
-**放弃的方案**：
-- 只在页面组件局部覆写 Markdown 样式：会导致后续阅读页样式分散
-- 继续让剩余页面保留单语言文案：会破坏中英文切换的一致性
+## 4. 状态管理
 
-**影响范围**：`frontend/src/views/ReportsView.vue`、`frontend/src/views/SettingsView.vue`、`frontend/src/style.css`、`docs/frontend.md`
+### 背景
 
----
+前端需要同时处理游客 Cookie、注册用户 token、语言偏好和接口错误。
 
-## 2026-05-29 — 第二轮视觉打磨：圆润化与图标系统
+### 决策
 
-**背景**：第一轮改造完成了结构和技术栈落地，但页面仍偏硬、偏直、偏纯文字，缺少参考图中的圆润和活泼感。
+认证状态和语言状态分别由 Pinia store 管理；Axios 统一注入 token，并处理 401 刷新。
 
-**决策**：
-- 引入 `@lucide/vue` 作为统一图标库
-- 将主布局导航从纯文字菜单切换为自定义圆角导航项
-- 在首页的视图标签、动作按钮、表头、报告项以及设置页卡片头部中加入图标
-- 提升圆角、透明层、柔和阴影和局部高光，让工作区从“管理台”更接近“知识工作台”
+### 实现要点
 
-**放弃的方案**：
-- 自绘零散 SVG：维护成本高，也不利于后续统一风格
-- 只在按钮前加图标、不调整整体层次：页面依旧会显得板
+认证：
 
-**影响范围**：`frontend/package.json`、`frontend/src/layouts/MainLayout.vue`、`frontend/src/views/BrowseView.vue`、`frontend/src/views/SettingsView.vue`、`docs/frontend.md`
+- `auth.ts` 保存 `token`、`refreshToken`、`userId`、`username`、`avatarUrl`、`isGuest`。
+- 游客登录调用 `/api/v1/auth/guest`，通过 Cookie 保持身份。
+- 注册 / 登录保存 token 到 localStorage。
+- `api/client.ts` 对 401 执行 refresh token。
+- `GUEST_FORBIDDEN` 触发登录引导。
 
----
+语言：
 
-## 2026-05-29 — 品牌 Logo 资源接入前端
+- `locale.ts` 保存 `zh-CN / en-US`。
+- 语言偏好持久化到 localStorage。
+- 主布局、首页、任务、报告、设置页面读取同一个 locale store。
 
-**背景**：项目已有明确的 Lore Seeker 品牌 logo，需要作为真实静态资源接入前端，而不是继续使用临时符号或纯文字占位。
+### 验收标准
 
-**决策**：
-- 接入 `src/assets/logo-word.avif` 作为完整 wordmark
-- 接入 `src/assets/logo-book.avif` 作为 icon mark
-- 当前主用 `png` 已处理为透明背景；`avif` 保留为压缩版本参考
-- 在 `MainLayout` 中使用 mark，在 `LoginView` 中使用完整 logo
+- 注册用户刷新页面后保持登录。
+- 游客刷新页面后保留游客会话。
+- 中英文切换后核心页面文案同步更新。
+- token 过期时优先自动刷新，而不是直接退出。
 
-**放弃的方案**：
-- 继续只用文字品牌名：识别度不足，也难以建立稳定品牌印象
-- 把外部图片 URL 直接写进页面：不利于版本管理和构建一致性
+## 5. 任务页面
 
-**影响范围**：`frontend/src/assets/logo-book.avif`、`frontend/src/assets/logo-word.avif`、`frontend/src/layouts/MainLayout.vue`、`frontend/src/views/LoginView.vue`
+### 背景
 
----
+搜索任务需要可创建、可启动、可查看状态和报告结果，不能只依赖首页快速搜索。
 
-## 2026-05-29 — 品牌延展到登录页与阅读页
+### 决策
 
-**背景**：logo 资源已经接入项目，但品牌只停留在局部页面，登录页、阅读页和报告页之间仍有风格落差。
+任务管理使用 `/api/v1/tasks`，快速搜索仍保留在首页入口。任务列表以主题标题为主展示字段。
 
-**决策**：
-- 登录页使用完整 logo，并补齐中英文文案切换
-- 报告阅读页和报告列表页接入品牌 mark、元信息图标和更细的动作提示
-- 让品牌不只体现在侧栏，而是贯穿进入应用前和阅读报告时的关键节点
+### 实现要点
 
-**放弃的方案**：
-- 只在侧栏展示品牌：用户在登录和阅读场景里感知不到连续的品牌体验
-- 继续让登录页保持单语言：会和全局语言切换产生割裂
+- `TasksView` 调用 `GET /api/v1/tasks`。
+- 列表展示 `topic_title`、状态、搜索模式、频率、创建时间。
+- `TaskCreateView` 支持选择已有主题或创建新主题。
+- 创建任务提交 `source_sites`、`search_mode`、`frequency`。
+- 混合搜索模式提交 `mixed`。
+- `TaskDetailView` 展示主题、关键词、来源站点、报告列表，并支持启动和重试。
+- `TaskDetailView` 启动任务后轮询刷新任务状态和报告列表。
 
-**影响范围**：`frontend/src/views/LoginView.vue`、`frontend/src/views/ReportView.vue`、`frontend/src/views/ReportsView.vue`、`docs/frontend.md`
+### 验收标准
 
----
+- 任务列表优先显示 `topic_title`。
+- 创建任务最多提交 5 个来源站点。
+- 启动任务后状态进入执行态。
+- 失败任务在详情页可重试。
+- 任务完成后详情页能显示生成的报告。
 
-## 2026-05-29 — 左上角身份入口改为 Notion 式下拉层
+## 6. 报告阅读与 Markdown
 
-**背景**：左上角此前只是普通品牌块，缺少类似 Notion 的“当前身份入口 + 下拉层 + 侧栏折叠按钮”交互模型。
+### 背景
 
-**决策**：
-- 将左上角改为“品牌图标 + 当前用户名 + 小三角 + 单独折叠按钮”
-- 点击身份入口弹出账户层，包含设置、个人信息、语言切换，以及游客注册/登录或正式用户登出
-- 侧栏支持折叠到图标模式，折叠后保留核心导航和底部动作
+报告是 Agent 的核心产物，需要稳定的阅读体验、章节定位和一致的 Markdown 样式。
 
-**放弃的方案**：
-- 继续把账户信息放在侧栏底部单独卡片里：不符合你给出的参考交互
-- 将折叠按钮混进身份入口内：会削弱入口和结构控制的职责分离
+### 决策
 
-**影响范围**：`frontend/src/layouts/MainLayout.vue`、`docs/frontend.md`
+报告详情页采用左侧 TOC + 右侧 Markdown 阅读布局，Markdown 渲染由 `md-editor-v3` 负责。
 
----
+### 实现要点
 
-## 2026-05-29 — 接入 Tailwind CSS
+- `ReportView` 调用 `/api/v1/reports/{id}`。
+- `MdPreview` 渲染 `content_md`。
+- TOC 使用后端返回的 `toc`。
+- Markdown 标题、表格、代码块、引用样式在 `src/style.css` 中统一覆盖。
+- 报告不存在、无权限或加载失败时展示明确状态。
 
-**背景**：前端技术约定补充为 Vue 3 + TypeScript + Vite + Tailwind + md-editor-v3，仓库此前尚未完成 Tailwind 接入。
+### 验收标准
 
-**决策**：
-- 使用 Tailwind 官方 Vite 插件 `@tailwindcss/vite`
-- 在 `src/style.css` 中通过 `@import "tailwindcss"` 注入全局样式层
-- 在 `main.ts` 中统一引入全局样式，保留 `md-editor-v3` 样式引入不变
-- 同步修正游客登录依赖，改用官方包 `@fingerprintjs/fingerprintjs`
-- 补齐 `tsconfig.json` / `tsconfig.node.json` / `src/env.d.ts`，使 `vue-tsc` 和 `vite build` 可执行
+- TOC 可跳转到对应章节。
+- Markdown 表格、代码块、引用和标题显示稳定。
+- 无权限或不存在报告不会出现空白页。
 
-**放弃的方案**：
-- 继续只用 scoped CSS：不符合当前前端技术约定，后续样式复用成本高
-- 引入额外 PostCSS 配置：当前接法不需要，保持最小化集成
+## 7. 知识问答与通知
 
-**影响范围**：`frontend/package.json`、`frontend/vite.config.ts`、`frontend/src/main.ts`、`frontend/src/style.css`、`frontend/src/stores/auth.ts`、`frontend/tsconfig.json`、`frontend/tsconfig.node.json`、`frontend/src/env.d.ts`
+### 背景
 
----
+前端需要把已有知识检索和任务状态能力接起来，不能只保留导航占位。
 
-## 2025-05-27 — 初始设计
+### 决策
 
-**背景**：确定前端页面结构和核心阅读体验。
+`ChatView` 接入 `/api/v1/knowledge/query`，`InboxView` 基于 `/api/v1/tasks` 聚合任务通知。
 
-**决策**：
-- 使用 `md-editor-v3` 的 `MdPreview` 组件（只读模式），不引入完整编辑器，减少包体积
-- TOC 点击滚动使用原生 `scrollIntoView`，不引入额外滚动库
-- 任务状态轮询间隔 3 秒，在 `BrowseView` 组件内管理，任务完成后自动清除定时器
+### 实现要点
 
-**放弃的方案**：
-- VitePress 直接集成：需要 SSG 构建流程，与 Vue SPA 架构不兼容
-- 自己实现 Markdown 渲染：工作量大，md-editor-v3 已提供完整方案
+- `ChatView` 提供问答消息流、输入框、示例问题和来源引用。
+- 知识问答只对注册用户开放，游客触发接口时由 Axios 的 `GUEST_FORBIDDEN` 逻辑引导登录。
+- `InboxView` 将 `pending/fetching/organizing/completed/failed` 任务映射为通知卡片。
+- 通知卡片点击进入对应任务详情。
+- `HelpView` 汇总当前已接入的功能入口。
+- `TrashView` 提供垃圾箱路由和空状态；恢复接口未实现前不伪造数据。
 
-**待解决**：
-- 任务状态推送依赖轮询，后续升级为 WebSocket
-- 报告阅读页未实现内联问答（在报告页直接提问）
+### 验收标准
 
-**影响范围**：`frontend/src/` 所有文件
+- 对话页能提交问题并展示回答和来源。
+- 收件箱能展示任务状态通知。
+- 帮助和垃圾箱入口不再停留在 toast 占位。
 
----
+## 8. 视觉规范
 
-## 2026-05-28 — 双令牌认证适配
+### 背景
 
-**背景**：后端认证升级为 access + refresh 双令牌机制，前端需同步适配。
+界面需要借鉴 Notion 的紧凑工作区结构，同时避免复制其品牌、logo 和专有表达。
 
-**决策**：
-- auth store 新增 `refresh_token` 持久化存储，`setAuth()` 同时存储两个 token
-- 新增 `refreshAccessToken()` 方法：access token 过期时用 refresh token 无感续期
-- `logout()` 先调后端 `/auth/logout` 再清除本地状态
-- `login()` 改用 `URLSearchParams` 发送 OAuth2 标准 form-data 格式
+### 决策
 
-**影响范围**：`frontend/src/stores/auth.ts`
+采用暖中性色背景、蓝色品牌标识、低对比边框、圆形图标按钮和中等偏紧凑的信息密度。
+
+### 实现要点
+
+- 不使用 Notion logo 或其专有标识。
+- 品牌资源统一放在 `frontend/src/assets/`。
+- 图标按钮优先使用图形表达，文字只用于明确命令或列表项。
+- 工作台不做营销式 hero，不用大面积装饰图。
+- 移动端和桌面端都需要避免文字溢出、图标漂移和控件重叠。
+
+### 验收标准
+
+- 页面第一屏呈现工作台，而不是落地页。
+- 图标、按钮、列表行高度和间距统一。
+- 品牌图资源背景透明，不出现白色底格或压缩变形。

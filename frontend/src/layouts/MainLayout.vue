@@ -260,7 +260,7 @@
             <template #trigger>
               <button
                 class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/75 bg-white/72 text-[#7e7468] shadow-[0_14px_36px_rgba(148,131,105,0.08)] backdrop-blur-sm transition hover:bg-white hover:text-[#556d88]"
-                @click="handleToolbarAction('search')"
+                @click="handleToolbarAction('createTask')"
               >
                 <SquarePen :size="22" />
               </button>
@@ -291,6 +291,7 @@ import {
   Home,
   Inbox,
   Languages,
+  ListTodo,
   ChevronsLeft,
   CircleHelp,
   FolderPlus,
@@ -350,6 +351,7 @@ const copy = computed(() =>
         guestBadge: '游客会话',
         memberBadge: '已登录',
         browse: '主页',
+        tasks: '任务',
         chat: '对话',
         inbox: '收件箱',
         search: '搜索',
@@ -361,18 +363,14 @@ const copy = computed(() =>
         myCategories: '我的分类',
         addFolder: '新增分类',
         deleteFolder: '删除分类',
-        tasks: '任务',
         knowledgeBase: '知识库',
         help: '帮助',
         trash: '垃圾箱',
         desktopNote: '从电脑桌面端开始吧！',
         weeklyTodo: 'Weekly To-do List',
         monthlyBudget: 'Monthly Budget',
-        folderAddPending: '添加文件夹能力还没接后端，先保留入口。',
-        folderDeletePending: '删除文件夹能力还没接后端，先保留入口。',
-        helpPending: '帮助页还没接入，先保留入口。',
-        trashPending: '垃圾箱还没接入，先保留入口。',
-        communityPending: '协作社区还没接入，先保留入口。',
+        folderAddPending: '请在设置页新增关注主题。',
+        folderDeletePending: '删除分类能力需要后端恢复/删除接口支持。',
       }
     : {
         guestPlan: 'Free plan · Guest session',
@@ -399,6 +397,7 @@ const copy = computed(() =>
         guestBadge: 'Guest session',
         memberBadge: 'Signed in',
         browse: 'Home',
+        tasks: 'Tasks',
         chat: 'Chat',
         inbox: 'Inbox',
         search: 'Search',
@@ -410,18 +409,14 @@ const copy = computed(() =>
         myCategories: 'My categories',
         addFolder: 'Add category',
         deleteFolder: 'Delete category',
-        tasks: 'Tasks',
         knowledgeBase: 'Knowledge base',
         help: 'Help',
         trash: 'Trash',
         desktopNote: 'Start from the desktop workspace',
         weeklyTodo: 'Weekly To-do List',
         monthlyBudget: 'Monthly Budget',
-        folderAddPending: 'Add-folder behavior is not wired yet.',
-        folderDeletePending: 'Delete-folder behavior is not wired yet.',
-        helpPending: 'Help page is not wired yet.',
-        trashPending: 'Trash view is not wired yet.',
-        communityPending: 'Community is not wired yet.',
+        folderAddPending: 'Add tracked topics from settings.',
+        folderDeletePending: 'Deleting categories requires backend delete/restore support.',
       }
 )
 
@@ -438,11 +433,13 @@ const activeKey = computed(() => {
 const toolbarActiveKey = computed(() => {
   if (route.path.startsWith('/browse')) return 'home'
   if (route.path.startsWith('/inbox')) return 'inbox'
+  if (route.path.startsWith('/tasks')) return 'tasks'
   return null
 })
 
 const toolbarItems = computed(() => [
   { key: 'home', label: copy.value.browse, icon: Home, activeKey: 'home' },
+  { key: 'tasks', label: copy.value.tasks, icon: ListTodo, activeKey: 'tasks' },
   { key: 'inbox', label: copy.value.inbox, icon: Inbox, activeKey: 'inbox' },
   { key: 'search', label: copy.value.search, icon: Search, activeKey: null },
   { key: 'locale', label: copy.value.language, icon: Languages, activeKey: null },
@@ -519,6 +516,11 @@ function handleToolbarAction(key: string) {
     return
   }
 
+  if (key === 'tasks') {
+    handleNavigate('/tasks')
+    return
+  }
+
   if (key === 'inbox') {
     handleNavigate('/inbox')
     return
@@ -527,6 +529,12 @@ function handleToolbarAction(key: string) {
   if (key === 'search') {
     if (collapsed.value) expandSidebar()
     handleNavigate('/browse')
+    return
+  }
+
+  if (key === 'createTask') {
+    if (collapsed.value) expandSidebar()
+    handleNavigate('/tasks/new')
     return
   }
 
@@ -542,7 +550,7 @@ function handleToolbarAction(key: string) {
 
 function handleUtilityAction(key: string) {
   if (key === 'tasks') {
-    handleToolbarAction('search')
+    handleToolbarAction('tasks')
     return
   }
 
@@ -552,18 +560,19 @@ function handleUtilityAction(key: string) {
   }
 
   if (key === 'help') {
-    message.info(copy.value.helpPending)
+    handleNavigate('/help')
     return
   }
 
   if (key === 'trash') {
-    message.info(copy.value.trashPending)
+    handleNavigate('/trash')
   }
 }
 
 function handleFolderMenuAction(action: 'add' | 'delete') {
   if (action === 'add') {
     message.info(copy.value.folderAddPending)
+    handleNavigate('/settings')
     return
   }
 
@@ -571,7 +580,7 @@ function handleFolderMenuAction(action: 'add' | 'delete') {
 }
 
 function showCommunity() {
-  message.info(copy.value.communityPending)
+  router.push('/community')
 }
 
 function showProfile() {

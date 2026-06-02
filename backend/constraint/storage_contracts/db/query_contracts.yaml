@@ -1,0 +1,101 @@
+version: "1.0"
+description: "DB 查询约束。所有用户数据查询必须显式携带 user_id 或通过可证明的 ownership join 隔离。"
+
+global_rules:
+  require_user_isolation: true
+  require_deleted_at_filter_for_tasks: true
+  mutation_requires_member: true
+  vector_dimension: 1536
+
+contracts:
+  list_tasks:
+    operation: "select"
+    caller: ["api", "planner"]
+    tables: ["search_tasks", "topics"]
+    required_filters:
+      - "search_tasks.user_id = :user_id"
+      - "search_tasks.deleted_at IS NULL"
+    required_output_fields:
+      - "id"
+      - "topic_id"
+      - "topic_title"
+      - "source_sites"
+      - "search_mode"
+      - "frequency"
+      - "status"
+
+  get_task:
+    operation: "select"
+    caller: ["api", "worker", "planner"]
+    tables: ["search_tasks"]
+    required_filters:
+      - "search_tasks.id = :task_id"
+      - "search_tasks.user_id = :user_id"
+      - "search_tasks.deleted_at IS NULL"
+
+  insert_search_history:
+    operation: "insert"
+    caller: ["searcher", "worker"]
+    tables: ["search_histories"]
+    required_fields:
+      - "user_id"
+      - "task_id"
+      - "query"
+      - "raw_results"
+    optional_fields:
+      - "parent_id"
+      - "topic_id"
+      - "report_id"
+    hierarchy:
+      parent_id_null: "overall search history"
+      parent_id_present: "subtask search history"
+
+  insert_report_and_chunks:
+    operation: "insert"
+    caller: ["organizer", "worker"]
+    tables: ["reports", "knowledge_chunks"]
+    required_fields:
+      reports:
+        - "topic_id"
+        - "task_id"
+        - "content_md"
+        - "toc"
+      knowledge_chunks:
+        - "report_id"
+        - "chunk_index"
+        - "content"
+        - "embedding"
+
+  retrieve_knowledge:
+    operation: "select"
+    caller: ["retriever", "api"]
+    tables: ["knowledge_chunks", "reports", "search_tasks"]
+    required_joins:
+      - "reports.id = knowledge_chunks.report_id"
+      - "search_tasks.id = reports.task_id"
+    required_filters:
+      - "search_tasks.user_id = :user_id"
+      - "search_tasks.deleted_at IS NULL"
+    required_ordering:
+      - "knowledge_chunks.embedding <=> :query_embedding"
+
+  upsert_user_preference:
+    operation: "insert_or_update"
+    caller: ["planner", "api"]
+    tables: ["zr_user_preferences"]
+    required_fields:
+      - "user_id"
+      - "key"
+      - "value"
+      - "category"
+
+  archive_working_session:
+    operation: "insert"
+    caller: ["planner", "worker"]
+    tables: ["zr_working_sessions"]
+    required_fields:
+      - "user_id"
+      - "session_key"
+      - "goal"
+      - "steps"
+      - "started_at"

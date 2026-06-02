@@ -1,0 +1,273 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lore-seeker.local/contracts/agent/task_schema.json",
+  "title": "Lore Seeker Agent Task Contract",
+  "description": "Agent 间传递任务、规划和子任务队列时使用的统一约束。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "contract_type", "task", "routing"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "contract_type": {
+      "type": "string",
+      "const": "agent.task"
+    },
+    "trace": {
+      "$ref": "#/$defs/trace"
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_id", "user_id", "title", "search_mode", "frequency", "status"],
+      "properties": {
+        "task_id": {
+          "type": ["integer", "string"],
+          "minLength": 1
+        },
+        "topic_id": {
+          "type": ["integer", "string", "null"]
+        },
+        "user_id": {
+          "type": ["integer", "string"],
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "keywords": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "description": {
+          "type": ["string", "null"],
+          "maxLength": 4000
+        },
+        "source_sites": {
+          "$ref": "#/$defs/source_sites"
+        },
+        "search_mode": {
+          "$ref": "#/$defs/search_mode"
+        },
+        "frequency": {
+          "type": "string",
+          "enum": ["once", "daily", "weekly", "biweekly", "monthly"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "fetching", "organizing", "completed", "failed"]
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5,
+          "default": 3
+        },
+        "created_at": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "metadata": {
+          "$ref": "#/$defs/metadata"
+        }
+      }
+    },
+    "planning": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "intent_summary": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "needs_query_optimization": {
+          "type": "boolean"
+        },
+        "needs_decomposition": {
+          "type": "boolean"
+        },
+        "focus_areas": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          }
+        },
+        "expected_chapters": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "search_queries": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 12,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          }
+        },
+        "planner_notes": {
+          "type": ["string", "null"],
+          "maxLength": 4000
+        }
+      }
+    },
+    "subtasks": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "$ref": "#/$defs/subtask"
+      }
+    },
+    "routing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from_agent", "to_agent", "handoff_reason"],
+      "properties": {
+        "from_agent": {
+          "$ref": "#/$defs/agent_name"
+        },
+        "to_agent": {
+          "$ref": "#/$defs/agent_name"
+        },
+        "handoff_reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "next_action": {
+          "type": "string",
+          "enum": ["plan", "search", "organize", "retrieve", "evaluate", "archive", "stop"]
+        }
+      }
+    },
+    "extensions": {
+      "$ref": "#/$defs/extensions"
+    }
+  },
+  "$defs": {
+    "agent_name": {
+      "type": "string",
+      "enum": ["planner", "searcher", "organizer", "retriever", "worker"]
+    },
+    "search_mode": {
+      "type": "string",
+      "enum": ["api", "crawl", "mixed"]
+    },
+    "source_sites": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      }
+    },
+    "subtask": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subtask_id", "keyword", "source_sites", "priority", "status"],
+      "properties": {
+        "subtask_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "keyword": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "source_sites": {
+          "$ref": "#/$defs/source_sites"
+        },
+        "search_mode": {
+          "$ref": "#/$defs/search_mode"
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "reason": {
+          "type": ["string", "null"],
+          "maxLength": 1000
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "running", "succeeded", "failed", "skipped"]
+        },
+        "retry_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "max_attempts": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5,
+              "default": 3
+            },
+            "backoff": {
+              "type": "string",
+              "enum": ["none", "fixed", "exponential"],
+              "default": "exponential"
+            },
+            "timeout_seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 300,
+              "default": 60
+            }
+          }
+        },
+        "metadata": {
+          "$ref": "#/$defs/metadata"
+        }
+      }
+    },
+    "trace": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "trace_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "session_key": {
+          "type": ["string", "null"],
+          "maxLength": 255
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "extensions": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

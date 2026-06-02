@@ -1,0 +1,77 @@
+version: "1.0"
+description: "Lore Seeker Tool 注册信息。Agent 调用 Tool 前必须匹配 input_schema，返回必须匹配 output_schema。"
+
+defaults:
+  input_schema: "schemas/tool_input_schema.json"
+  output_schema: "schemas/tool_output_schema.json"
+  retry:
+    max_attempts: 3
+    backoff: "exponential"
+  sensitive_fields:
+    - "api_key"
+    - "authorization"
+    - "cookie"
+    - "password"
+    - "token"
+
+tools:
+  search_api:
+    owner: "backend/services/search_service.py"
+    allowed_callers: ["searcher"]
+    input_kind: "search_api"
+    output_data_shape: "results: [{title, url, content, provider, score}]"
+    timeout_seconds: 30
+    providers: ["tavily", "serpapi", "bing"]
+    retryable_errors: ["timeout", "http_5xx", "provider_error", "rate_limit"]
+
+  crawler:
+    owner: "backend/services/search_service.py"
+    allowed_callers: ["searcher"]
+    input_kind: "crawler"
+    output_data_shape: "pages: [{title, url, content, status_code}]"
+    timeout_seconds: 60
+    concurrency_limit: 10
+    per_site_policy_required: true
+    site_policy_source: "backend/config.toml[crawler.site_policies]"
+    retryable_errors: ["timeout", "http_5xx"]
+    non_retryable_errors: ["http_403", "http_404"]
+
+  embedding:
+    owner: "backend/core/embedding_router.py"
+    allowed_callers: ["organizer", "retriever"]
+    input_kind: "embedding"
+    output_data_shape: "vectors: [[float]], dimension: 1536"
+    timeout_seconds: 60
+    retryable_errors: ["timeout", "provider_error"]
+
+  reranker:
+    owner: "backend/core/embedding_router.py"
+    allowed_callers: ["retriever"]
+    input_kind: "reranker"
+    output_data_shape: "ranked: [{index, score, text}]"
+    timeout_seconds: 30
+    retryable_errors: ["timeout", "provider_error"]
+
+  llm:
+    owner: "backend/core/llm_router.py"
+    allowed_callers: ["planner", "searcher", "organizer", "retriever"]
+    input_kind: "llm"
+    output_data_shape: "content: string, usage: object"
+    timeout_seconds: 120
+    retryable_errors: ["timeout", "provider_error", "rate_limit"]
+
+  redis:
+    owner: "backend/core/task_redis.py"
+    allowed_callers: ["planner", "searcher", "organizer", "worker", "api"]
+    input_kind: "redis"
+    output_data_shape: "value: any, affected: integer"
+    timeout_seconds: 5
+    key_contract: "../storage_contracts/redis/key_patterns.yaml"
+
+  postgres:
+    owner: "backend/db/models.py"
+    allowed_callers: ["planner", "searcher", "organizer", "retriever", "worker", "api"]
+    input_kind: "postgres"
+    output_data_shape: "rows | affected_count"
+    timeout_seconds: 30
+    query_contract: "../storage_contracts/db/query_contracts.yaml"

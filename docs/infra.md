@@ -1,97 +1,141 @@
-# 基础设施
+# 基础设施设计
 
-## Docker Compose 服务拓扑
+## 1. 模块职责
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      Docker Compose                          │
-│                                                              │
-│  ┌──────────┐    ┌──────────┐    ┌──────────┐              │
-│  │ frontend │    │ backend  │    │  worker  │              │
-│  │  :5173   │    │  :8000   │    │ (celery) │              │
-│  └────┬─────┘    └────┬─────┘    └────┬─────┘              │
-│       │               │               │                      │
-│       │         ┌─────▼───────────────▼──┐                  │
-│       │         │         redis          │                   │
-│       │         │         :6379          │                   │
-│       │         └────────────────────────┘                   │
-│       │                   │                                   │
-│       │         ┌─────────▼──────────────┐                   │
-│       └────────▶│          db            │                   │
-│                 │   postgresql :5432     │                   │
-│                 └────────────────────────┘                   │
-└─────────────────────────────────────────────────────────────┘
-```
+基础设施文档定义本地开发和容器启动方式，包括数据库、Redis、后端、worker 和前端。
 
-## 服务说明
+对应文件：
 
-| 服务 | 镜像 | 端口 | 说明 |
-|---|---|---|---|
-| `db` | `pgvector/pgvector:pg16` | 5432 | PostgreSQL + pgvector 扩展 |
-| `redis` | `redis:7-alpine` | 6379 | Celery broker + backend |
-| `backend` | 本地构建 | 8000 | FastAPI，`--reload` 热重载 |
-| `worker` | 本地构建（同 backend） | — | Celery worker，监听 `agent_tasks` 队列 |
-| `frontend` | 本地构建 | 5173 | Vite dev server，`--host 0.0.0.0` |
+- `docker-compose.yml`
+- `backend/Dockerfile`
+- `frontend/Dockerfile`
+- `backend/db/schema.sql`
+- `tests/infra/test_connections.py`
 
-`backend` 和 `worker` 共用同一个 Dockerfile，挂载同一份代码（`./backend:/app`），区别只在启动命令。
+## 2. Docker Compose 拓扑
 
-## 健康检查
+### 背景
 
-`db` 和 `redis` 配置了 healthcheck，`backend` 和 `worker` 通过 `depends_on: condition: service_healthy` 等待依赖就绪后再启动，避免启动顺序问题。
+开发环境需要一条命令启动完整依赖，并保持前后端热更新。
 
-## 数据持久化
+### 决策
 
-PostgreSQL 数据通过 named volume `pgdata` 持久化，`docker compose down` 不会删除数据。
+使用 Docker Compose 编排五个服务。
 
-删除数据：`docker compose down -v`（谨慎操作）
+### 实现要点
 
-## 数据库初始化
+| 服务 | 端口 | 职责 |
+|---|---:|---|
+| `db` | 5432 | PostgreSQL + pgvector |
+| `redis` | 6379 | Celery、Session、Token、任务状态 |
+| `backend` | 8000 | FastAPI |
+| `worker` | 无 | Celery worker |
+| `frontend` | 5173 | Vite dev server |
 
-`backend/db/init.sql` 在容器首次启动时执行，启用 `vector` 和 `uuid-ossp` 扩展：
+依赖关系：
 
-```sql
-CREATE EXTENSION IF NOT EXISTS vector;
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+```text
+frontend -> backend -> db / redis
+worker -> db / redis
 ```
 
-表结构由 SQLAlchemy 的 `Base.metadata.create_all()` 在 FastAPI 启动时自动创建（`lifespan` 事件）。
+### 验收标准
 
-## 本地开发
+- `docker compose up --build` 可启动完整开发环境。
+- `db` 和 `redis` healthcheck 通过后，backend 和 worker 再启动。
+- PostgreSQL 数据通过 `pgdata` volume 持久化。
+
+## 3. 数据库初始化
+
+### 背景
+
+数据库首次启动需要创建扩展和表结构。
+
+### 决策
+
+初始化文件统一为 `backend/db/schema.sql`。
+
+### 实现要点
+
+- Compose 将 `./backend/db/schema.sql` 挂载进 `/docker-entrypoint-initdb.d/schema.sql`。
+- `schema.sql` 启用 `vector` 扩展。
+- 表结构也可由 FastAPI lifespan 中的 `Base.metadata.create_all()` 创建。
+
+### 验收标准
+
+- 新建 volume 后数据库可完成初始化。
+- pgvector 扩展可用。
+
+## 4. 本地开发
+
+### 背景
+
+开发时需要既能全容器运行，也能只启动依赖、本地运行前后端。
+
+### 决策
+
+支持两种开发方式。
+
+### 实现要点
+
+完整容器：
 
 ```bash
-# 启动所有服务
 docker compose up --build
-
-# 只启动依赖（db + redis），后端本地运行
-docker compose up db redis
-
-# 查看 worker 日志
-docker compose logs -f worker
-
-# 重建单个服务
-docker compose up --build backend
 ```
 
-## 相关文件
+只启动依赖：
 
-- `docker-compose.yml` — 服务编排
-- `backend/Dockerfile` — 后端镜像（含 Playwright 依赖）
-- `frontend/Dockerfile` — 前端镜像
-- `backend/db/init.sql` — 数据库初始化
+```bash
+docker compose up db redis
+```
 
----
+后端本地：
 
-## 2025-05-27 — 初始设计
+```bash
+cd backend
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
 
-**背景**：确定部署方案，要求一键启动，开发体验友好。
+前端本地：
 
-**决策**：
-- `backend` 和 `worker` 共用镜像，减少构建时间
-- 代码目录挂载为 volume，支持热重载，无需每次改代码都重建镜像
-- 使用 `pgvector/pgvector` 官方镜像，避免手动安装扩展
+```bash
+cd frontend
+npm run dev
+```
 
-**待解决**：
-- 生产环境需要去掉 `--reload`，配置 gunicorn 多进程
-- 前端生产环境需要 `npm run build` + nginx 静态服务，当前 Dockerfile 只适合开发
+### 验收标准
 
-**影响范围**：`docker-compose.yml`、`backend/Dockerfile`、`frontend/Dockerfile`
+- 前端 Vite 代理能访问后端 8000。
+- worker 能连接 Redis 和数据库。
+- 本地 `.env` 能被后端正确加载。
+
+## 5. 验证
+
+### 背景
+
+连接错误和 secrets 泄露需要尽早发现。
+
+### 决策
+
+基础设施连接使用独立脚本验证。
+
+### 实现要点
+
+```bash
+.venv/bin/python tests/infra/test_connections.py
+```
+
+验证内容：
+
+- PostgreSQL 连接。
+- pgvector 扩展。
+- 表数量。
+- Redis 连接。
+- Redis key 数量。
+
+### 验收标准
+
+- 脚本从 `.env` 读取连接信息。
+- 输出不打印完整连接串和密码。
+- 连接失败时返回非零退出码。

@@ -17,7 +17,6 @@ async def _run(task_id: str, user_id: str, query: str, topic_config: dict):
     from core.database import AsyncSessionLocal
     from db.models import SearchTask
     from services.knowledge_service import store_report
-    from sqlalchemy import select
 
     state: AgentState = {
         "user_id": user_id,
@@ -33,15 +32,32 @@ async def _run(task_id: str, user_id: str, query: str, topic_config: dict):
         "final": False,
     }
 
-    final_state = await graph.ainvoke(state)
-
     async with AsyncSessionLocal() as db:
         task = await db.get(SearchTask, int(task_id))
-        if task and final_state.get("organized_md"):
-            await store_report(
-                db=db,
-                task=task,
-                title=query,
-                content_md=final_state["organized_md"],
-                toc=final_state.get("toc", []),
-            )
+        if task:
+            task.status = "fetching"
+            await db.commit()
+
+    try:
+        final_state = await graph.ainvoke(state)
+
+        async with AsyncSessionLocal() as db:
+            task = await db.get(SearchTask, int(task_id))
+            if task and final_state.get("organized_md"):
+                await store_report(
+                    db=db,
+                    task=task,
+                    content_md=final_state["organized_md"],
+                    toc=final_state.get("toc", []),
+                    result_count=len(final_state.get("raw_results", [])),
+                )
+            elif task:
+                task.status = "failed"
+                await db.commit()
+    except Exception:
+        async with AsyncSessionLocal() as db:
+            task = await db.get(SearchTask, int(task_id))
+            if task:
+                task.status = "failed"
+                await db.commit()
+        raise

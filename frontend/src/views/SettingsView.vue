@@ -31,8 +31,8 @@
                   <BookOpenText :size="16" />
                 </div>
                 <div>
-                  <div class="text-sm font-medium text-neutral-900">{{ t.name }}</div>
-                  <div class="mt-1 text-sm text-neutral-500">{{ t.target_sites?.join(', ') || copy.noSites }}</div>
+                  <div class="text-sm font-medium text-neutral-900">{{ t.title }}</div>
+                  <div class="mt-1 text-sm text-neutral-500">{{ t.keywords?.join(', ') || t.description || copy.noKeywords }}</div>
                 </div>
               </div>
             </div>
@@ -41,7 +41,7 @@
           </div>
 
           <div class="mt-5 grid gap-3">
-            <n-input v-model:value="newTopic.name" :placeholder="copy.topicNamePlaceholder">
+            <n-input v-model:value="newTopic.title" :placeholder="copy.topicNamePlaceholder">
               <template #prefix>
                 <PenSquare :size="16" class="text-[#93a4b6]" />
               </template>
@@ -51,12 +51,7 @@
                 <NotebookPen :size="16" class="text-[#93a4b6]" />
               </template>
             </n-input>
-            <n-input v-model:value="sitesInput" :placeholder="copy.topicSitesPlaceholder">
-              <template #prefix>
-                <Globe2 :size="16" class="text-[#93a4b6]" />
-              </template>
-            </n-input>
-            <n-select v-model:value="newTopic.search_mode" :options="searchModeOptions" />
+            <n-dynamic-tags v-model:value="newTopic.keywords" :placeholder="copy.topicKeywordsPlaceholder" />
             <n-button type="primary" @click="addTopic">{{ copy.addTopic }}</n-button>
           </div>
         </n-card>
@@ -92,11 +87,10 @@
 // 文件说明：
 // SettingsView 用于管理主题配置和用户偏好，是搜索计划与知识整理行为的前端配置入口。
 import { computed, onMounted, ref } from 'vue'
-import { useMessage, NButton, NCard, NEmpty, NGrid, NGridItem, NInput, NSelect } from 'naive-ui'
+import { useMessage, NButton, NCard, NDynamicTags, NEmpty, NGrid, NGridItem, NInput } from 'naive-ui'
 import {
   BookOpenText,
   FolderGit2,
-  Globe2,
   NotebookPen,
   PenSquare,
   SlidersHorizontal,
@@ -107,15 +101,25 @@ import { useLocaleStore } from '@/stores/locale'
 
 interface TopicItem {
   id: string
-  name: string
-  target_sites?: string[]
+  title: string
+  description?: string | null
+  keywords?: string[]
+}
+
+interface TopicForm {
+  title: string
+  description: string
+  keywords: string[]
 }
 
 const locale = useLocaleStore()
 const message = useMessage()
 const topics = ref<TopicItem[]>([])
-const newTopic = ref({ name: '', description: '', search_mode: 'api', target_sites: [] as string[] })
-const sitesInput = ref('')
+const newTopic = ref<TopicForm>({
+  title: '',
+  description: '',
+  keywords: [],
+})
 const prefsText = ref('')
 const jsonPlaceholder = '{\n  "output_lang": "zh-CN"\n}'
 
@@ -126,18 +130,17 @@ const copy = computed(() =>
         title: '设置',
         subtitle: '管理关注主题、目标站点和用户偏好，影响后续搜索计划与知识整理方式。',
         topicTitle: '关注主题',
-        noSites: '未指定站点',
+        noKeywords: '未设置关键词',
         emptyTopics: '还没有主题配置',
         topicNamePlaceholder: '主题名称',
         topicDescPlaceholder: '描述（可选）',
-        topicSitesPlaceholder: '目标网站（逗号分隔）',
+        topicKeywordsPlaceholder: '添加关键词',
         addTopic: '添加主题',
         preferenceTitle: '个性化偏好',
         preferenceHint: '这里直接编辑 Agent 归纳出的偏好 JSON。保存前会先在前端做 JSON 解析校验。',
         savePreferences: '保存偏好',
-        searchApi: 'API 搜索',
-        searchCrawler: '爬虫扫描',
-        searchHybrid: '混合模式',
+        topicRequired: '请输入主题名称',
+        addSuccess: '主题已添加',
         saveSuccess: '偏好已保存',
         saveError: 'JSON 格式错误',
       }
@@ -146,28 +149,21 @@ const copy = computed(() =>
         title: 'Settings',
         subtitle: 'Manage tracked topics, target sites, and user preferences that shape future search and organization behavior.',
         topicTitle: 'Tracked Topics',
-        noSites: 'No site restriction',
+        noKeywords: 'No keywords',
         emptyTopics: 'No topic configuration yet',
         topicNamePlaceholder: 'Topic name',
         topicDescPlaceholder: 'Description (optional)',
-        topicSitesPlaceholder: 'Target sites (comma separated)',
+        topicKeywordsPlaceholder: 'Add keywords',
         addTopic: 'Add topic',
         preferenceTitle: 'Personal Preferences',
         preferenceHint: 'Edit the JSON preferences inferred by the agent. The frontend validates the JSON before saving.',
         savePreferences: 'Save preferences',
-        searchApi: 'API search',
-        searchCrawler: 'Crawler',
-        searchHybrid: 'Hybrid',
+        topicRequired: 'Topic name is required',
+        addSuccess: 'Topic added',
         saveSuccess: 'Preferences saved',
         saveError: 'Invalid JSON format',
       }
 )
-
-const searchModeOptions = computed(() => [
-  { label: copy.value.searchApi, value: 'api' },
-  { label: copy.value.searchCrawler, value: 'crawl' },
-  { label: copy.value.searchHybrid, value: 'both' },
-])
 
 onMounted(async () => {
   const [topicsRes, meRes] = await Promise.all([
@@ -179,12 +175,15 @@ onMounted(async () => {
 })
 
 async function addTopic() {
-  newTopic.value.target_sites = sitesInput.value.split(',').map(s => s.trim()).filter(Boolean)
+  if (!newTopic.value.title.trim()) {
+    message.warning(copy.value.topicRequired)
+    return
+  }
   await api.post('/api/v1/search/topics', newTopic.value)
   const res = await api.get('/api/v1/search/topics')
   topics.value = res.data
-  newTopic.value = { name: '', description: '', search_mode: 'api', target_sites: [] }
-  sitesInput.value = ''
+  newTopic.value = { title: '', description: '', keywords: [] }
+  message.success(copy.value.addSuccess)
 }
 
 async function savePrefs() {

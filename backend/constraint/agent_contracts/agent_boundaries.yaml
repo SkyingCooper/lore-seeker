@@ -1,0 +1,579 @@
+version: "1.0"
+description: "Lore Seeker 四个核心 Agent 的边界约束。任何 Agent 交互、Tool 调用、Storage 访问都必须先通过本文件声明的边界。"
+
+global_rules:
+  canonical_boundary_file: "backend/constraint/agent_contracts/agent_boundaries.yaml"
+  canonical_manifest_file: "backend/constraint/agent_contracts/agent_manifest.yaml"
+  direct_agent_call_allowed: false
+  delegation_must_go_through: "orchestrator"
+  unknown_operation_policy: "deny_and_warn"
+  denied_operation_policy: "deny_and_critical_alert"
+  responsibility_violation_policy: "reject_with_owner_hint"
+  permission_escalation_policy: "require_user_confirmation"
+  cross_user_data_policy: "deny_and_critical_alert"
+  all_errors_must_use_contract: "agent_contracts/schemas/error_schema.json"
+  enforcement:
+    undeclared_operation:
+      match: "operation not in allowed_operations or tool not in allowed_tools"
+      action: "reject"
+      alert: "warning"
+    denied_operation:
+      match: "operation in denied_operations or tool in denied_tools"
+      action: "reject"
+      alert: "critical"
+    responsibility_violation:
+      match: "task responsibility not in responsible_for"
+      action: "reject"
+      response_template: "这不是 {agent} 的职责，请找 {owner_hint}。"
+    cross_agent_handoff:
+      match: "session crosses responsibility boundary"
+      action: "delegate"
+      route: "orchestrator"
+      direct_agent_call_allowed: false
+    permission_violation:
+      match: "required_permission rank exceeds agent permission.level rank"
+      action: "reject"
+      alert: "critical"
+    temporary_escalation:
+      match: "operation requires higher permission or is listed in requires_confirmation_for"
+      action: "ask_user_confirmation"
+      prompt_template: "需要执行敏感操作，是否允许？"
+    lifecycle_expired:
+      match: "agent exceeds max_active_seconds or max_idle_seconds"
+      action: "apply lifecycle.on_incomplete"
+
+permission_levels:
+  read_context:
+    rank: 10
+    description: "读取当前任务上下文和自身输入。"
+  read_user_knowledge:
+    rank: 20
+    description: "读取当前用户已授权知识数据，必须按 user_id 隔离。"
+  write_task_state:
+    rank: 30
+    description: "写入任务状态、Redis 工作区和中间结果。"
+  write_agent_memory:
+    rank: 40
+    description: "写入 Agent 记忆表，例如用户偏好、经验、工作会话。"
+  write_report:
+    rank: 50
+    description: "写入报告、知识切片和向量。"
+  admin_or_destructive:
+    rank: 90
+    description: "删除数据、跨用户访问、修改 schema、执行系统命令等敏感操作。"
+
+boundary_types:
+  capability_boundary:
+    rule: "调用不在 allowed_operations/allowed_tools 内的能力时拒绝并告警；调用 denied_operations/denied_tools 时拒绝并严重告警。"
+  data_boundary:
+    rule: "只能访问 allowed_state、allowed_redis_keys、allowed_db_tables 和当前 user_id 范围内数据。"
+  responsibility_boundary:
+    rule: "收到不属于自身职责的任务时拒绝并返回 owner_hint；跨职责转交必须通过 orchestrator。"
+  permission_boundary:
+    rule: "不能执行超过 required_permission 的操作；临时提权必须用户确认。"
+  lifecycle_boundary:
+    rule: "不能超过自身生命周期；生命周期结束时按 on_incomplete 处理未完成任务。"
+
+agents:
+  planner:
+    name: "planner"
+    version: "1.0.0"
+    description: "P&E 推理中枢，负责规划、推进、失败总结、质量评估、记忆沉淀。"
+
+    capabilities:
+      allowed_tools:
+        - "llm"
+        - "redis"
+        - "postgres"
+      denied_tools:
+        - "search_api"
+        - "crawler"
+        - "embedding"
+        - "reranker"
+      allowed_operations:
+        - "understand_user_intent"
+        - "optimize_search_queries"
+        - "decompose_task"
+        - "prioritize_subtasks"
+        - "select_source_sites"
+        - "create_agent_task_contract"
+        - "initialize_redis_workspace"
+        - "evaluate_search_result"
+        - "evaluate_organizer_result"
+        - "write_user_preference"
+        - "write_skill_memory"
+        - "archive_working_session"
+        - "create_next_periodic_task"
+      denied_operations:
+        - "execute_search_api"
+        - "crawl_web_page"
+        - "generate_final_report"
+        - "write_knowledge_chunks"
+        - "answer_user_rag_query"
+        - "delete_database_rows"
+        - "access_other_user_data"
+        - "read_secret_values"
+
+    data_boundary:
+      allowed_state:
+        - "task"
+        - "topic_config"
+        - "preferences"
+        - "subtasks"
+        - "quality_score"
+        - "quality_feedback"
+        - "final"
+      allowed_redis_keys:
+        - "task:{task_id}:context"
+        - "task:{task_id}:working_log"
+      allowed_db_tables:
+        - "search_tasks"
+        - "topics"
+        - "zr_user_preferences"
+        - "zr_skill_memories"
+        - "zr_working_sessions"
+      denied_data:
+        - "other_users_data"
+        - ".env"
+        - "api_keys"
+        - "password_hashes"
+        - "raw_access_tokens"
+
+    responsibilities:
+      responsible_for:
+        - "task_perception"
+        - "task_planning"
+        - "subtask_generation"
+        - "handoff_to_searcher"
+        - "search_result_evaluation"
+        - "organizer_quality_check"
+        - "task_state_progression"
+        - "agent_memory_summary"
+      not_responsible:
+        search_execution: "searcher"
+        web_crawling: "searcher"
+        markdown_report_generation: "organizer"
+        embedding_generation: "organizer"
+        rag_answer_generation: "retriever"
+      violation_response: "这不是 Planner 的职责，请交给 {owner_hint}。"
+      cross_boundary_handoff:
+        route: "orchestrator"
+        direct_agent_call_allowed: false
+
+    permission:
+      level: "write_agent_memory"
+      required_permission:
+        write_user_preference: "write_agent_memory"
+        write_skill_memory: "write_agent_memory"
+        archive_working_session: "write_agent_memory"
+        create_next_periodic_task: "write_task_state"
+      requires_confirmation_for:
+        - "create_next_periodic_task"
+        - "write_implicit_user_preference"
+      denied_permission_levels:
+        - "admin_or_destructive"
+
+    lifecycle:
+      lifespan: "task_scoped"
+      max_idle_seconds: 900
+      max_active_seconds: 1800
+      max_lifespan_seconds: 1800
+      on_timeout: "save_state_for_resume"
+      on_incomplete: "save_state_for_resume"
+      on_lifecycle_end: "save_state_for_resume"
+      can_delegate_to:
+        - "orchestrator"
+      can_receive_from:
+        - "orchestrator"
+      direct_agent_calls_allowed: false
+
+    audit:
+      always_log:
+        - "llm_calls"
+        - "contract_validation"
+        - "responsibility_violations"
+        - "permission_escalations"
+        - "memory_writes"
+      warn_on:
+        - "undeclared_operation"
+        - "undeclared_tool"
+        - "responsibility_violation"
+      critical_alert_on:
+        - "denied_operation"
+        - "denied_tool"
+        - "permission_violation"
+        - "cross_user_data_attempt"
+
+  searcher:
+    name: "searcher"
+    version: "1.0.0"
+    description: "执行型 Agent，负责搜索、爬取、限流、重试、搜索历史、结果初评。"
+
+    capabilities:
+      allowed_tools:
+        - "search_api"
+        - "crawler"
+        - "llm"
+        - "redis"
+        - "postgres"
+      denied_tools:
+        - "embedding"
+        - "reranker"
+      allowed_operations:
+        - "reuse_recent_search_history"
+        - "build_execution_queue"
+        - "load_site_policy_from_config"
+        - "execute_search_api"
+        - "crawl_source_sites"
+        - "classify_search_error"
+        - "retry_search_subtask"
+        - "standardize_search_result"
+        - "deduplicate_by_url"
+        - "write_search_history"
+        - "evaluate_search_relevance"
+        - "suggest_search_strategy_update"
+      denied_operations:
+        - "write_final_report"
+        - "write_knowledge_chunks"
+        - "write_user_preference"
+        - "write_skill_memory"
+        - "answer_user_rag_query"
+        - "delete_database_rows"
+        - "access_other_user_data"
+        - "read_secret_values"
+
+    data_boundary:
+      allowed_state:
+        - "query"
+        - "topic_config._plan"
+        - "source_sites"
+        - "search_mode"
+        - "raw_results"
+        - "search_histories"
+        - "search_evaluation"
+      allowed_redis_keys:
+        - "task:{task_id}:context"
+        - "task:{task_id}:subtasks"
+        - "task:{task_id}:results_raw"
+        - "task:{task_id}:working_log"
+      allowed_db_tables:
+        - "search_tasks"
+        - "search_histories"
+      allowed_config_paths:
+        - "crawler.site_policies"
+        - "search"
+      denied_data:
+        - "other_users_data"
+        - ".env"
+        - "api_keys"
+        - "password_hashes"
+        - "raw_access_tokens"
+        - "knowledge_chunks_without_user_filter"
+
+    responsibilities:
+      responsible_for:
+        - "search_preprocessing"
+        - "site_policy_application"
+        - "search_api_execution"
+        - "crawler_execution"
+        - "subtask_retry"
+        - "search_metadata_summary"
+        - "search_history_creation"
+        - "search_relevance_estimation"
+      not_responsible:
+        task_decomposition: "planner"
+        final_quality_decision: "planner"
+        markdown_report_generation: "organizer"
+        vector_storage: "organizer"
+        rag_answer_generation: "retriever"
+      violation_response: "这不是 Searcher 的职责，请交给 {owner_hint}。"
+      cross_boundary_handoff:
+        route: "orchestrator"
+        direct_agent_call_allowed: false
+
+    permission:
+      level: "write_task_state"
+      required_permission:
+        execute_search_api: "write_task_state"
+        crawl_source_sites: "write_task_state"
+        write_search_history: "write_task_state"
+      requires_confirmation_for:
+        - "crawl_source_sites"
+      denied_permission_levels:
+        - "write_agent_memory"
+        - "write_report"
+        - "admin_or_destructive"
+
+    lifecycle:
+      lifespan: "subtask_batch_scoped"
+      max_idle_seconds: 600
+      max_active_seconds: 1800
+      max_lifespan_seconds: 1800
+      on_timeout: "save_state_for_resume"
+      on_incomplete: "save_state_for_resume"
+      on_lifecycle_end: "save_state_for_resume"
+      can_delegate_to:
+        - "orchestrator"
+      can_receive_from:
+        - "orchestrator"
+      direct_agent_calls_allowed: false
+
+    audit:
+      always_log:
+        - "tool_calls"
+        - "search_api_calls"
+        - "crawler_calls"
+        - "retry_events"
+        - "rate_limit_events"
+        - "search_history_writes"
+        - "responsibility_violations"
+      warn_on:
+        - "undeclared_operation"
+        - "undeclared_tool"
+        - "responsibility_violation"
+        - "retry_exhausted"
+      critical_alert_on:
+        - "denied_operation"
+        - "denied_tool"
+        - "permission_violation"
+        - "cross_user_data_attempt"
+
+  organizer:
+    name: "organizer"
+    version: "1.0.0"
+    description: "报告整理 Agent，负责 Markdown 报告、TOC、摘要、切片和知识入库。"
+
+    capabilities:
+      allowed_tools:
+        - "llm"
+        - "embedding"
+        - "redis"
+        - "postgres"
+      denied_tools:
+        - "search_api"
+        - "crawler"
+        - "reranker"
+      allowed_operations:
+        - "filter_low_quality_search_results"
+        - "generate_markdown_report"
+        - "generate_toc"
+        - "apply_quality_feedback"
+        - "chunk_markdown"
+        - "generate_embeddings"
+        - "write_report"
+        - "write_knowledge_chunks"
+        - "write_refined_results"
+      denied_operations:
+        - "decompose_task"
+        - "execute_search_api"
+        - "crawl_web_page"
+        - "evaluate_user_satisfaction"
+        - "write_user_preference"
+        - "write_skill_memory"
+        - "answer_user_rag_query"
+        - "delete_database_rows"
+        - "access_other_user_data"
+
+    data_boundary:
+      allowed_state:
+        - "raw_results"
+        - "expected_chapters"
+        - "quality_feedback"
+        - "content_md"
+        - "toc"
+        - "summary"
+      allowed_redis_keys:
+        - "task:{task_id}:context"
+        - "task:{task_id}:results_raw"
+        - "task:{task_id}:results_refined"
+        - "task:{task_id}:working_log"
+      allowed_db_tables:
+        - "reports"
+        - "knowledge_chunks"
+        - "search_tasks"
+      denied_data:
+        - "other_users_data"
+        - ".env"
+        - "api_keys"
+        - "password_hashes"
+        - "raw_access_tokens"
+
+    responsibilities:
+      responsible_for:
+        - "report_generation"
+        - "toc_generation"
+        - "markdown_cleanup"
+        - "quality_feedback_application"
+        - "knowledge_chunking"
+        - "embedding_generation"
+        - "report_storage"
+      not_responsible:
+        task_decomposition: "planner"
+        search_execution: "searcher"
+        web_crawling: "searcher"
+        final_quality_decision: "planner"
+        rag_answer_generation: "retriever"
+      violation_response: "这不是 Organizer 的职责，请交给 {owner_hint}。"
+      cross_boundary_handoff:
+        route: "orchestrator"
+        direct_agent_call_allowed: false
+
+    permission:
+      level: "write_report"
+      required_permission:
+        write_report: "write_report"
+        write_knowledge_chunks: "write_report"
+        generate_embeddings: "write_report"
+      requires_confirmation_for: []
+      denied_permission_levels:
+        - "write_agent_memory"
+        - "admin_or_destructive"
+
+    lifecycle:
+      lifespan: "task_scoped"
+      max_idle_seconds: 900
+      max_active_seconds: 2400
+      max_lifespan_seconds: 2400
+      on_timeout: "save_state_for_resume"
+      on_incomplete: "save_state_for_resume"
+      on_lifecycle_end: "save_state_for_resume"
+      can_delegate_to:
+        - "orchestrator"
+      can_receive_from:
+        - "orchestrator"
+      direct_agent_calls_allowed: false
+
+    audit:
+      always_log:
+        - "llm_calls"
+        - "embedding_calls"
+        - "report_writes"
+        - "knowledge_chunk_writes"
+        - "responsibility_violations"
+      warn_on:
+        - "undeclared_operation"
+        - "undeclared_tool"
+        - "responsibility_violation"
+      critical_alert_on:
+        - "denied_operation"
+        - "denied_tool"
+        - "permission_violation"
+        - "cross_user_data_attempt"
+
+  retriever:
+    name: "retriever"
+    version: "1.0.0"
+    description: "RAG 检索 Agent，负责用户隔离的向量召回、重排序和回答生成。"
+
+    capabilities:
+      allowed_tools:
+        - "embedding"
+        - "reranker"
+        - "llm"
+        - "postgres"
+      denied_tools:
+        - "search_api"
+        - "crawler"
+      allowed_operations:
+        - "embed_user_query"
+        - "retrieve_user_knowledge_chunks"
+        - "rerank_retrieved_chunks"
+        - "generate_context_grounded_answer"
+        - "return_sources"
+      denied_operations:
+        - "decompose_task"
+        - "execute_search_api"
+        - "crawl_web_page"
+        - "write_report"
+        - "write_knowledge_chunks"
+        - "write_user_preference"
+        - "write_skill_memory"
+        - "delete_database_rows"
+        - "access_other_user_data"
+
+    data_boundary:
+      allowed_state:
+        - "query"
+        - "user_id"
+        - "retrieved_chunks"
+        - "answer"
+        - "sources"
+      allowed_redis_keys: []
+      allowed_db_tables:
+        - "knowledge_chunks"
+        - "reports"
+        - "search_tasks"
+      required_query_path:
+        - "knowledge_chunks.report_id -> reports.id"
+        - "reports.task_id -> search_tasks.id"
+        - "search_tasks.user_id = current_user.id"
+        - "search_tasks.deleted_at IS NULL"
+      denied_data:
+        - "other_users_data"
+        - ".env"
+        - "api_keys"
+        - "password_hashes"
+        - "raw_access_tokens"
+        - "knowledge_chunks_without_user_filter"
+
+    responsibilities:
+      responsible_for:
+        - "query_embedding"
+        - "user_isolated_vector_retrieval"
+        - "reranking"
+        - "context_grounded_answer"
+        - "source_return"
+      not_responsible:
+        task_decomposition: "planner"
+        search_execution: "searcher"
+        report_generation: "organizer"
+        report_storage: "organizer"
+        memory_writes: "planner"
+      violation_response: "这不是 Retriever 的职责，请交给 {owner_hint}。"
+      cross_boundary_handoff:
+        route: "orchestrator"
+        direct_agent_call_allowed: false
+
+    permission:
+      level: "read_user_knowledge"
+      required_permission:
+        retrieve_user_knowledge_chunks: "read_user_knowledge"
+        generate_context_grounded_answer: "read_user_knowledge"
+      requires_confirmation_for: []
+      denied_permission_levels:
+        - "write_task_state"
+        - "write_agent_memory"
+        - "write_report"
+        - "admin_or_destructive"
+
+    lifecycle:
+      lifespan: "request_scoped"
+      max_idle_seconds: 120
+      max_active_seconds: 300
+      max_lifespan_seconds: 300
+      on_timeout: "cancel"
+      on_incomplete: "cancel"
+      on_lifecycle_end: "cancel"
+      can_delegate_to:
+        - "orchestrator"
+      can_receive_from:
+        - "orchestrator"
+      direct_agent_calls_allowed: false
+
+    audit:
+      always_log:
+        - "retrieval_queries"
+        - "reranker_calls"
+        - "llm_calls"
+        - "source_returns"
+        - "permission_violations"
+        - "responsibility_violations"
+      warn_on:
+        - "undeclared_operation"
+        - "undeclared_tool"
+        - "responsibility_violation"
+      critical_alert_on:
+        - "denied_operation"
+        - "denied_tool"
+        - "permission_violation"
+        - "cross_user_data_attempt"

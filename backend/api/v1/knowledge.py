@@ -20,7 +20,7 @@ async def query_knowledge(
     current_user: User = Depends(require_member),
     db: AsyncSession = Depends(get_db),
 ):
-    chunks = await retrieve(body.query, db, top_k=body.top_k * 4)
+    chunks = await retrieve(body.query, db, user_id=current_user.id, top_k=body.top_k * 4)
     response = await answer(body.query, chunks)
     return {
         "answer": response,

@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lore-seeker.local/contracts/tool/tool_output_schema.json",
+  "title": "Lore Seeker Tool Output Contract",
+  "description": "Tool 返回给 Agent 时使用的统一输出 envelope。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "contract_type", "tool_name", "status"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0" },
+    "contract_type": { "type": "string", "const": "tool.output" },
+    "trace": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "trace_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "task_id": { "type": ["integer", "string", "null"] },
+        "subtask_id": { "type": ["string", "null"], "maxLength": 128 }
+      }
+    },
+    "tool_name": {
+      "type": "string",
+      "enum": ["search_api", "crawler", "embedding", "reranker", "llm", "redis", "postgres"]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["succeeded", "partial", "failed"]
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "code": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "message": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "retryable": { "type": "boolean" },
+        "category": { "type": "string", "enum": ["validation", "rate_limit", "timeout", "provider", "storage", "unknown"] }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "duration_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "retry_count": { "type": "integer", "minimum": 0, "maximum": 5, "default": 0 },
+        "result_count": { "type": ["integer", "null"], "minimum": 0 },
+        "token_usage": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}
