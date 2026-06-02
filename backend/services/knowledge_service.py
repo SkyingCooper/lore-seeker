@@ -29,8 +29,11 @@ async def store_report(
 
     chunks = _split_hierarchical(content_md, toc)
     if chunks:
-        texts = [c["content"] for c in chunks]
-        embeddings = await get_embeddings(texts)
+        for chunk in chunks:
+            chunk["summary"] = _summarize_chunk(chunk["content"])
+
+        summaries = [c["summary"] for c in chunks]
+        embeddings = await get_embeddings(summaries)
         for i, (chunk, vec) in enumerate(zip(chunks, embeddings)):
             db.add(KnowledgeChunk(
                 report_id=report.id,
@@ -40,6 +43,7 @@ async def store_report(
                 section_anchor=chunk["section_anchor"],
                 parent_title=chunk.get("parent_title"),
                 content=chunk["content"],
+                summary=chunk["summary"],
                 embedding=vec,
             ))
 
@@ -116,6 +120,30 @@ def _split_hierarchical(md: str, toc: list, chunk_size: int = 800, overlap: int 
                     })
 
     return chunks
+
+
+def _summarize_chunk(content: str, min_len: int = 50, max_len: int = 150) -> str:
+    """生成用于检索预览和 embedding 的轻量摘要。"""
+    import re
+
+    text = re.sub(r"```.*?```", " ", content, flags=re.S)
+    text = re.sub(r"`([^`]*)`", r"\1", text)
+    text = re.sub(r"!\[[^\]]*]\([^)]*\)", " ", text)
+    text = re.sub(r"\[([^\]]+)]\([^)]*\)", r"\1", text)
+    text = re.sub(r"^#{1,6}\s*", "", text, flags=re.M)
+    text = re.sub(r"[-*_]{2,}", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+
+    if not text:
+        return content[:max_len].strip()
+    if len(text) <= max_len:
+        return text
+
+    summary = text[:max_len].strip()
+    sentence_end = max(summary.rfind("。"), summary.rfind("."), summary.rfind("！"), summary.rfind("？"))
+    if sentence_end >= min_len:
+        return summary[: sentence_end + 1].strip()
+    return summary
 
 
 def _slugify(text: str) -> str:

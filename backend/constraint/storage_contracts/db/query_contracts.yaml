@@ -5,7 +5,8 @@ global_rules:
   require_user_isolation: true
   require_deleted_at_filter_for_tasks: true
   mutation_requires_member: true
-  vector_dimension: 1536
+  vector_dimension: 1024
+  vector_index_type: "hnsw"
 
 contracts:
   list_tasks:
@@ -41,14 +42,25 @@ contracts:
       - "user_id"
       - "task_id"
       - "query"
+      - "source_sites"
+      - "search_mode"
+      - "status"
+      - "result_count"
       - "raw_results"
     optional_fields:
       - "parent_id"
       - "topic_id"
       - "report_id"
+      - "retry_count"
+      - "execution_duration"
+      - "failure_reason"
+      - "metadata"
     hierarchy:
       parent_id_null: "overall search history"
       parent_id_present: "subtask search history"
+    source_traceability:
+      source_sites: "actual executed source sites, not only requested task source_sites"
+      search_mode: "actual executed mode: api/crawl/mixed"
 
   insert_report_and_chunks:
     operation: "insert"
@@ -64,7 +76,18 @@ contracts:
         - "report_id"
         - "chunk_index"
         - "content"
+        - "summary"
+        - "source_search_ids"
         - "embedding"
+    optional_fields:
+      reports:
+        - "token_usage"
+      knowledge_chunks:
+        - "content_marked"
+    embedding_source: "knowledge_chunks.summary"
+    source_traceability:
+      - "knowledge_chunks.source_search_ids must contain search_histories.id values"
+      - "source URL/title details are resolved from search_histories.raw_results"
 
   retrieve_knowledge:
     operation: "select"
@@ -78,6 +101,9 @@ contracts:
       - "search_tasks.deleted_at IS NULL"
     required_ordering:
       - "knowledge_chunks.embedding <=> :query_embedding"
+    keyword_retrieval:
+      engine: "postgres_tsvector"
+      required_filter: "knowledge_chunks.search_vector @@ plainto_tsquery('simple', :query)"
 
   upsert_user_preference:
     operation: "insert_or_update"
@@ -99,3 +125,86 @@ contracts:
       - "goal"
       - "steps"
       - "started_at"
+
+  query_semantic_memory:
+    operation: "select"
+    caller: ["planner", "retriever", "organizer"]
+    tables: ["zr_semantic_memories"]
+    required_filters:
+      - "(zr_semantic_memories.user_id = :user_id OR zr_semantic_memories.user_id IS NULL)"
+      - "zr_semantic_memories.deleted_at IS NULL"
+    required_ordering:
+      - "zr_semantic_memories.embedding <=> :query_embedding"
+    eviction_fields:
+      - "confidence"
+      - "last_accessed"
+
+  query_episodic_logs:
+    operation: "select"
+    caller: ["planner", "organizer"]
+    tables: ["zr_episodic_logs"]
+    required_filters:
+      - "zr_episodic_logs.user_id = :user_id"
+      - "zr_episodic_logs.deleted_at IS NULL"
+    eviction_fields:
+      - "importance"
+
+  update_skill_memory_usage:
+    operation: "update"
+    caller: ["planner", "worker"]
+    tables: ["zr_skill_memories"]
+    required_fields:
+      - "usage_count"
+      - "success_count"
+      - "fail_count"
+      - "last_used_at"
+      - "status"
+      - "confidence"
+
+  insert_skill_memory:
+    operation: "insert"
+    caller: ["planner", "worker"]
+    tables: ["zr_skill_memories"]
+    required_fields:
+      - "title"
+      - "desc"
+      - "content"
+      - "scope"
+      - "trigger_patterns"
+    optional_fields:
+      - "citation"
+      - "user_id"
+      - "status"
+      - "confidence"
+
+  load_skill_memory_stage_one:
+    operation: "select"
+    caller: ["planner", "worker"]
+    tables: ["zr_skill_memories"]
+    required_filters:
+      - "zr_skill_memories.status = 'active'"
+      - "(zr_skill_memories.scope = 'global' OR zr_skill_memories.user_id = :user_id)"
+    required_output_fields:
+      - "id"
+      - "title"
+      - "desc"
+      - "trigger_patterns"
+      - "confidence"
+      - "last_used_at"
+
+  insert_guardrail_log:
+    operation: "insert"
+    caller: ["planner", "searcher", "organizer", "retriever", "worker"]
+    tables: ["log_guardrail"]
+    required_fields:
+      - "agent_name"
+      - "hook"
+      - "allowed"
+      - "alert_level"
+      - "sanitized_payload"
+    optional_fields:
+      - "user_id"
+      - "task_id"
+      - "operation"
+      - "tool_name"
+      - "reason"

@@ -1,5 +1,6 @@
 from datetime import datetime
 from sqlalchemy import BigInteger, ForeignKey, String, Text, DateTime, JSON, Float, Integer, Boolean
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from pgvector.sqlalchemy import Vector
 from core.database import Base
@@ -51,7 +52,7 @@ class SearchTask(Base):
     topic_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("topics.id"))
     query: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_sites: Mapped[list] = mapped_column(JSON, default=list)
-    search_mode: Mapped[str] = mapped_column(String(20), default="api")
+    search_mode: Mapped[str] = mapped_column(String(20), default="mixed")
     frequency: Mapped[str] = mapped_column(String(20), default="once")
     status: Mapped[str] = mapped_column(String(20), default="pending")
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -82,6 +83,7 @@ class Report(Base):
     content_md: Mapped[str | None] = mapped_column(Text, nullable=True)
     toc: Mapped[list] = mapped_column(JSON, default=list)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    token_usage: Mapped[dict] = mapped_column(JSON, default=dict)
     user_satisfaction: Mapped[str | None] = mapped_column(String(20), nullable=True)
     satisfaction_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -102,7 +104,10 @@ class KnowledgeChunk(Base):
     section_anchor: Mapped[str | None] = mapped_column(String(255), nullable=True)
     parent_title: Mapped[str | None] = mapped_column(String(500), nullable=True)
     content: Mapped[str] = mapped_column(Text)
-    embedding: Mapped[list[float]] = mapped_column(Vector(1536))
+    content_marked: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_search_ids: Mapped[list[int]] = mapped_column(ARRAY(BigInteger), default=list)
+    embedding: Mapped[list[float]] = mapped_column(Vector(1024))
     metadata_: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
 
     report: Mapped["Report"] = relationship(back_populates="chunks")
@@ -118,7 +123,15 @@ class SearchHistory(Base):
     topic_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("topics.id"), nullable=True)
     report_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("reports.id"), nullable=True)
     query: Mapped[str] = mapped_column(Text)
+    source_sites: Mapped[list] = mapped_column(JSON, default=list)
+    search_mode: Mapped[str] = mapped_column(String(20), default="mixed")
+    status: Mapped[str] = mapped_column(String(20), default="completed")
+    result_count: Mapped[int] = mapped_column(Integer, default=0)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    execution_duration: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     raw_results: Mapped[list] = mapped_column(JSON, default=list)
+    metadata_: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
     version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -156,7 +169,9 @@ class EpisodicLog(Base):
     session_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     event_type: Mapped[str] = mapped_column(String(50))
     content: Mapped[str] = mapped_column(Text)
+    importance: Mapped[float] = mapped_column(Float, default=0.5)
     metadata_: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     user: Mapped["User"] = relationship(back_populates="episodic_logs")
@@ -170,9 +185,12 @@ class SemanticMemory(Base):
     title: Mapped[str] = mapped_column(String(500))
     summary: Mapped[str] = mapped_column(Text)
     content: Mapped[str] = mapped_column(Text)
-    embedding: Mapped[list[float]] = mapped_column(Vector(1536))
+    embedding: Mapped[list[float]] = mapped_column(Vector(1024))
     source_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     source_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    last_accessed: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     user: Mapped["User | None"] = relationship(back_populates="semantic_memories")
@@ -198,12 +216,34 @@ class SkillMemory(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(String(255))
+    desc: Mapped[str | None] = mapped_column("desc", Text, nullable=True)
     content: Mapped[str] = mapped_column(Text)
     citation: Mapped[str | None] = mapped_column(Text, nullable=True)
     scope: Mapped[str] = mapped_column(String(20), default="global")
     user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=True)
     trigger_patterns: Mapped[list] = mapped_column(JSON, default=list)
     usage_count: Mapped[int] = mapped_column(Integer, default=0)
+    success_count: Mapped[int] = mapped_column(Integer, default=0)
+    fail_count: Mapped[int] = mapped_column(Integer, default=0)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    status: Mapped[str] = mapped_column(Text, default="active")
+    confidence: Mapped[float] = mapped_column(Float, default=0.5)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class GuardrailLog(Base):
+    __tablename__ = "log_guardrail"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    task_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    agent_name: Mapped[str] = mapped_column(String(50))
+    hook: Mapped[str] = mapped_column(String(50))
+    operation: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    tool_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    allowed: Mapped[bool] = mapped_column(Boolean)
+    alert_level: Mapped[str] = mapped_column(String(20))
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sanitized_payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

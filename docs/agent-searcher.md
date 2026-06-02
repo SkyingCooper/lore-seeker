@@ -38,7 +38,7 @@ config = state["topic_config"]
 plan = config.get("_plan", {})
 queries = plan.get("search_queries", [state["query"]])
 source_sites = config.get("source_sites", [])
-search_mode = config.get("search_mode", "api")
+search_mode = config.get("search_mode", "mixed")
 ```
 
 执行规则：
@@ -46,6 +46,7 @@ search_mode = config.get("search_mode", "api")
 - `api` 和 `mixed`：遍历 `queries` 调用 `search_api()`。
 - `crawl` 和 `mixed`：当 `source_sites` 非空时调用 `crawl_sites()`。
 - API 搜索携带 `source_sites` 作为站点过滤条件。
+- 具体搜索工具和爬虫工具从 `config/tool_mcp.yaml` 读取配置。
 - 所有结果按 URL 去重。
 
 ### 验收标准
@@ -76,7 +77,7 @@ Searcher 在正式搜索前执行预处理，优先复用已有结果；无法�
 1.4 当计划缺失时，回退使用用户原始 `query` 作为唯一子任务。
 
 2. 库内复用判断
-2.1 检查近期是否已有相同或相似任务结果。
+2.1 检查近期（非时事24小时内，时事2小时内）是否已有相同或相似任务结果。
 2.2 如果已有库内结果能够满足用户需求，直接复用已有数据。
 2.3 复用已有数据时生成复用摘要。
 2.4 如果库内结果不足，继续生成搜索执行队列。
@@ -125,7 +126,7 @@ Searcher 按搜索策略分批执行任务。并发上限为 10，单站点请�
 2.3 执行 API 搜索时附带 `source_sites` 过滤条件。
 2.4 执行爬虫时按站点策略设置 User-Agent、等待策略和超时。
 2.5 在 Redis 中实时更新中间状态，例如“正在解析某网站”。
-2.6 每个网站任务设置超时控制，默认 1 分钟。
+2.6 每个网站任务设置超时控制，默认 3 分钟。
 
 3. 重试与失败分类
 3.1 失败时判断错误类型。
@@ -219,7 +220,9 @@ Searcher 在执行结束后统一汇总搜索元数据、生成搜索摘要、�
 |---|---|
 | `subtask_id` | 子任务标识 |
 | `keyword` | 执行关键词 |
-| `source_site` | 目标来源 |
+| `source_sites` | 本次实际执行的搜索来源集合 |
+| `search_mode` | 本次实际执行的搜索方式：`api / crawl / mixed` |
+| `status` | 本次搜索执行状态：`completed / partial / failed` |
 | `duration_ms` | 搜索耗时 |
 | `retry_count` | 重试次数 |
 | `result_count` | 结果数量 |
@@ -234,8 +237,9 @@ Searcher 在执行结束后统一汇总搜索元数据、生成搜索摘要、�
 1.2 汇总每个子任务的重试次数。
 1.3 汇总每个子任务的结果数量。
 1.4 汇总关键词扩展和搜索策略调整情况。
-1.5 每个子任务生成一条 `search_history`。
-1.6 为每条 `search_history` 生成搜索摘要。
+1.5 每个子任务生成一条 `search_histories` 记录。
+1.6 每条记录必须写入本次实际执行的 `source_sites` 和 `search_mode`。
+1.7 为每条 `search_histories` 记录生成搜索摘要，并写入 `metadata`。
 
 2. 检查完成状态
 2.1 检查所有子任务是否都已完成。
@@ -243,16 +247,17 @@ Searcher 在执行结束后统一汇总搜索元数据、生成搜索摘要、�
 2.3 所有子任务结束后，生成整体搜索摘要。
 
 3. 汇总记录落地
-3.1 将汇总记录写入 Redis。
-3.2 将标准化、去重后的搜索结果写入 state。
-3.3 通知 Planner 搜索阶段完成。
+3.1 多个网站可能返回相同内容（转载新闻），使用 URL 归一化 + 内容哈希（正文前 500 字的 SimHash）做去重
+3.2 将汇总记录写入 Redis。
+3.3 将标准化、去重后的搜索结果写入 state。
+3.4 通知 Planner 搜索阶段完成。
 
 ### 验收标准
 
 - 输出结果字段稳定。
 - 同一 URL 不重复进入 Organizer。
 - 空结果能被后续节点识别并给出失败或空报告状态。
-- 每个子任务都有一条搜索历史记录。
+- 每个子任务都有一条搜索历史记录，记录实际搜索来源、实际搜索方式、结果数量和重试次数。
 - Redis 中能查看完整搜索汇总。
 
 ## 7. 执行后评估
@@ -278,7 +283,7 @@ Searcher 对搜索内容做初次评估。默认使用轻量模型或规则判�
 触发大模型改进搜索策略的条件：
 
 1. 关键词太宽泛，例如 `AI`。
-2. 前 5 条结果相关性低于 30%。
+2. 前 5 条结果相关性低于 40%。
 3. 用户 `description` 有隐含需求，例如“关注安全”。
 4. 任务有实时性要求。
 5. 多个子任务无结果或结果明显偏题。

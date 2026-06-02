@@ -55,12 +55,17 @@ Lore Seeker 是一个多 Agent 知识库系统。用户创建搜索任务后，�
 | 系统架构 | `overview.md` | 总体目标、模块关系、主数据流 |
 | API | `api.md` | 认证、接口规范、任务 API、错误码 |
 | 存储 | `storage.md` | 表结构、向量库、Redis、Agent 记忆 |
+| Redis 缓存 | `redis.md` | Redis key、缓存内容、TTL、过期策略 |
+| 上下文管理 | `context-manager.md` | Prompt 上下文注入、裁剪、摘要、压缩、token 窗口管理 |
+| Celery 调度 | `celery.md` | 异步任务、Beat 定时任务、周期任务触发 |
 | Planner | `agent-planner.md` | 任务规划和质量检查 |
 | Searcher | `agent-searcher.md` | 搜索 API、爬虫、结果去重 |
 | Organizer | `agent-organizer.md` | Markdown 报告、TOC、切片入库 |
 | Retriever | `agent-retriever.md` | 向量召回、重排序、RAG 回答 |
+| Memory Manager | `agent-memory-manager.md` | 用户偏好、Skill 经验、工作日志归档和记忆淘汰 |
 | Agent 边界 | `agent-boundaries.md` | 四个 Agent 的能力、数据、职责、权限、生命周期约束 |
 | Agent 护栏 | `agent-guardrails.md` | Pydantic AI hook、运行前后校验、Tool/LLM 拦截和审计 |
+| Tool / MCP | `tool-mcp.md` | 搜索 API、爬虫、反爬、MCP Server 和工具配置 |
 | 前端 | `frontend.md` | 工作台布局、路由、状态、组件约定 |
 | 配置 | `config.md` | TOML、`.env`、环境变量优先级 |
 | Prompt 配置 | `prompts.md` | Markdown 提示词目录、prompt-id、加载和渲染规则 |
@@ -102,6 +107,12 @@ Lore Seeker 是一个多 Agent 知识库系统。用户创建搜索任务后，�
 
 - PostgreSQL 初始化文件统一为 `backend/db/schema.sql`。
 
+### 可配置项
+
+- 凡是运行策略、阈值、模型名、调度频率、重试、超时、排序权重、RRF 常量、rerank 阈值等可配置内容，必须抽到配置文件。
+- 不允许把可配置策略写死在 Agent、Tool 或 API 代码里。
+- 当前独立配置包括 `config/context_manager.yaml`、`config/celery.yaml`、`config/retriever.yaml`、`config/source_credibility.yaml`、`config/tool_mcp.yaml`。
+
 ### 约束接口铁律
 
 - Agent 之间交互必须先定义并使用 `backend/constraint/agent_contracts`。
@@ -111,7 +122,7 @@ Lore Seeker 是一个多 Agent 知识库系统。用户创建搜索任务后，�
 
 ## 5. 当前已确认待实现
 
-1. Agent 记忆表已经建模，但 working / episodic / semantic / skill 的完整写入服务仍待实现。
+1. Agent 记忆表已经建模；用户偏好、Skill 经验和 Redis 工作区归档由 Planner 生成的记忆管理子 Agent 代理实现。
 2. `/api/v1/search/start` 与 `/api/v1/tasks` 的职责边界后续单独收敛。
 3. Agent、Tool、Redis/DB contract 已建目录和基础 schema，运行链路自动校验待接入。
 

@@ -10,12 +10,17 @@
 | [overview.md](./overview.md) | 系统架构 | 主链路、模块边界、异步任务模型、全局字段 |
 | [api.md](./api.md) | 后端 API | 认证、用户、主题、任务、报告、知识接口、错误码 |
 | [storage.md](./storage.md) | 存储 | PostgreSQL、pgvector、Redis、Agent 记忆表 |
+| [redis.md](./redis.md) | 存储 | Redis key、缓存内容、owner、TTL、过期策略 |
+| [context-manager.md](./context-manager.md) | 上下文 | Prompt 上下文注入、裁剪、摘要、压缩、token 窗口管理 |
+| [celery.md](./celery.md) | 调度 | Celery broker/backend、Beat 定时任务、周期任务触发 |
 | [agent-planner.md](./agent-planner.md) | Agent | 任务规划、质量检查、State 约定 |
 | [agent-searcher.md](./agent-searcher.md) | Agent | 搜索模式、搜索 API、爬虫、去重 |
 | [agent-organizer.md](./agent-organizer.md) | Agent | Markdown 报告、TOC、报告入库 |
 | [agent-retriever.md](./agent-retriever.md) | Agent | 向量召回、用户隔离、重排序、RAG 回答 |
+| [agent-memory-manager.md](./agent-memory-manager.md) | Agent | 记忆写入、Skill 反馈、工作区归档、记忆淘汰 |
 | [agent-boundaries.md](./agent-boundaries.md) | Agent 约束 | 四个 Agent 的能力、数据、职责、权限、生命周期边界 |
 | [agent-guardrails.md](./agent-guardrails.md) | Agent 护栏 | Pydantic AI 护栏 hook、校验模型、接入点 |
+| [tool-mcp.md](./tool-mcp.md) | Tool/MCP | 搜索 API、爬虫、反爬、MCP 和工具配置 |
 | [frontend.md](./frontend.md) | 前端 | 技术栈、路由、主布局、状态、任务页、报告页 |
 | [config.md](./config.md) | 配置 | TOML、`.env`、环境变量优先级、Provider 路由 |
 | [prompts.md](./prompts.md) | Prompt 配置 | Markdown 提示词目录、prompt-id、加载方式 |

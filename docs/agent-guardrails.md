@@ -121,9 +121,28 @@ Agent 运行链路必须经过统一护栏。护栏使用 Pydantic 模型校验 
 - 后端通过 `python3 -m compileall -q backend`。
 - 护栏函数可在 `.venv` 中直接调用。
 
-## 5. 待实现
+## 5. 审计与迁移
 
-1. 将 `GuardrailDecision` 写入 Redis 工作日志 `task:{task_id}:working_log`。
-2. 将 warning/critical 审计归档到 `zr_working_sessions`。
-3. 将 LangGraph 节点逐步迁移到 Pydantic AI Agent 原生运行方式。
-4. 为每个 hook 增加单元测试，覆盖允许、拒绝、严重告警和脱敏路径。
+### 背景
+
+护栏决策既需要服务当次任务排障，也需要保留 warning / critical 级别的长期审计记录。LangGraph 节点后续也需要逐步迁移到 Pydantic AI Agent 原生运行方式，方便独立测试和复用。
+
+### 决策
+
+- `GuardrailDecision` 摘要写入 Redis 工作日志 `task:{task_id}:working_log`。
+- warning / critical 级别审计归档到独立表 `log_guardrail`。
+- LangGraph 节点逐步迁移到 Pydantic AI Agent 原生运行方式。
+- 每个 hook 必须补单元测试。
+
+### 实现要点
+
+- Redis 工作日志只保存脱敏后的护栏摘要。
+- `log_guardrail` 保存长期审计记录，不替代 `zr_working_sessions`。
+- 单元测试覆盖允许、拒绝、严重告警和脱敏路径。
+- 迁移期间，Pydantic AI Agent 和 LangGraph 节点必须复用同一套 contract 与 guardrail hook。
+
+### 验收标准
+
+- 每次护栏决策可在任务工作日志中追踪。
+- warning / critical 审计可从 `log_guardrail` 按 `task_id`、`agent_name`、`alert_level` 查询。
+- hook 单测覆盖 before_run、after_run、before_model_request、before_tool_call、after_tool_call、on_tool_error、on_error。

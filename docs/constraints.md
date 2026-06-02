@@ -17,6 +17,7 @@
 3. 与 Redis/DB 交互必须使用 `backend/constraint/storage_contracts` 下定义的 key、value、表和查询约束。
 4. 新增 Agent、Tool、Redis key、DB 查询前，必须先补 contract，再写业务代码。
 5. 不允许绕过 contract 直接传自由 JSON、直接调用 Tool、直接写 Redis 或直接拼接 DB 查询。
+6. 任何进入 prompt 的上下文必须先经过 Context Manager，按 `context-manager.md` 的优先级、裁剪、摘要和压缩规则处理。
 
 ### 实现要点
 
@@ -160,6 +161,15 @@ Tool 统一使用 input/output envelope：
 
 - `search_api`
 - `crawler`
+- `web_search`
+- `academic_search`
+- `github_search`
+- `stackoverflow_search`
+- `news_search`
+- `http_crawler`
+- `dynamic_crawler`
+- `anti_ban`
+- `mcp_gateway`
 - `embedding`
 - `reranker`
 - `llm`
@@ -210,12 +220,23 @@ Redis key 约束：
 
 - `session:{session_id}`
 - `refresh_token:{user_id}`
-- `jwt:blacklist:{jti}`
+- `bl_access:{jti}`
+- `captcha:{token}`
 - `task:{task_id}:context`
 - `task:{task_id}:subtasks`
 - `task:{task_id}:results_raw`
 - `task:{task_id}:results_refined`
 - `task:{task_id}:working_log`
+- `session:{user_id}:{session_id}:context`
+- `user:{user_id}:semantic`
+- `session:{user_id}:{session_id}:retriever_worklog`
+- `llm:cache:{model}:{prompt_hash}`
+
+Redis 设计细节：
+
+- 集中记录在 `docs/redis.md`。
+- Redis key 模式和 TTL 以 `backend/constraint/storage_contracts/redis/key_patterns.yaml` 为准。
+- Redis value 结构以 `backend/constraint/storage_contracts/redis/data_schema.json` 为准。
 
 Agent 记忆表名：
 
@@ -230,7 +251,8 @@ DB 查询强规则：
 - 用户数据查询必须携带 `user_id` 或通过 ownership join 证明隔离。
 - 任务、报告、知识查询必须过滤 `search_tasks.deleted_at IS NULL`。
 - 写操作必须由注册用户触发。
-- 向量维度固定为 `1536`。
+- 向量维度固定为 `1024`。
+- 凡涉及向量检索的索引必须使用 HNSW。
 
 ### 验收标准
 
@@ -238,6 +260,7 @@ DB 查询强规则：
 - 新 DB 查询不在 `query_contracts.yaml` 中则不能进入业务代码。
 - 知识检索必须通过 `knowledge_chunks -> reports -> search_tasks -> user_id` 隔离。
 - Redis 工作日志最终归档到 `zr_working_sessions`。
+- prompt 上下文超限时不得绕过 Context Manager 直接调用模型。
 
 ## 5. 已确认待实现
 
@@ -249,5 +272,7 @@ DB 查询强规则：
 ## 6. 已确认决策
 
 1. Tool 的实际 LLM router 文件名固定为 `backend/core/llm_router.py`。
-2. 站点限流策略暂时放在 `backend/config.toml` 的 `crawler.site_policies` 中，不进入数据库。
+2. 站点限流策略暂时放在 `config/tool_mcp.yaml` 的 `tool_mcp.crawler.site_policies` 中，不进入数据库。
 3. `search_histories` 不拆分子任务级表，通过 `parent_id` 区分整体搜索记录和子任务搜索记录。
+4. `search_histories` 作为来源事实表，记录本次实际执行的 `source_sites`、`search_mode` 和原始结果。
+5. `knowledge_chunks` 不重复保存来源 URL / 标题，通过 `source_search_ids` 保存原始 `search_histories.id` 集合。

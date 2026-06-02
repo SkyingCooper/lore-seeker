@@ -1,0 +1,256 @@
+tool_mcp:
+  global:
+    timeout_seconds: 30
+    retry_count: 3
+    retry_delay_seconds: 1
+    retry_backoff: "exponential"
+    max_concurrency: 10
+    sensitive_fields:
+      - "api_key"
+      - "api_secret"
+      - "authorization"
+      - "cookie"
+      - "password"
+      - "token"
+
+  search:
+    web_search:
+      enabled: true
+      description: "搜索互联网内容"
+      owner_agent: "searcher"
+      default_engine: "google"
+      engines:
+        google:
+          api_type: "serper"
+          api_key: "${SERPER_API_KEY}"
+          base_url: "https://google.serper.dev/search"
+          timeout_seconds: 30
+          max_results: 10
+        baidu:
+          api_type: "baidu_search"
+          api_key: "${BAIDU_SEARCH_API_KEY}"
+          api_secret: "${BAIDU_SEARCH_SECRET}"
+          base_url: "https://api.baidu.com/search"
+          timeout_seconds: 30
+          max_results: 10
+        bing:
+          api_type: "bing_search"
+          api_key: "${BING_SEARCH_API_KEY}"
+          base_url: "https://api.bing.microsoft.com/v7.0/search"
+          timeout_seconds: 30
+          max_results: 10
+        duckduckgo:
+          api_type: "ddg_search"
+          base_url: "https://api.duckduckgo.com/"
+          timeout_seconds: 30
+          max_results: 10
+      rate_limit:
+        enabled: true
+        requests_per_second: 1
+        requests_per_minute: 10
+        burst: 2
+      backoff:
+        initial_delay_seconds: 1
+        max_delay_seconds: 60
+        multiplier: 2
+
+    academic_search:
+      enabled: true
+      description: "搜索论文、专利和学术资料"
+      owner_agent: "searcher"
+      default_engine: "google_scholar"
+      engines:
+        google_scholar:
+          api_type: "serper"
+          api_key: "${SERPER_API_KEY}"
+          base_url: "https://google.serper.dev/scholar"
+          timeout_seconds: 30
+          max_results: 20
+        semantic_scholar:
+          api_type: "semantic_scholar"
+          api_key: "${SEMANTIC_SCHOLAR_API_KEY}"
+          base_url: "https://api.semanticscholar.org/v1"
+          timeout_seconds: 30
+          max_results: 20
+        arxiv:
+          api_type: "arxiv"
+          base_url: "http://export.arxiv.org/api/query"
+          timeout_seconds: 30
+          max_results: 20
+
+    github_search:
+      enabled: true
+      description: "搜索 GitHub 代码、仓库、Issue 和讨论"
+      owner_agent: "searcher"
+      api_type: "github"
+      api_key: "${GITHUB_TOKEN}"
+      base_url: "https://api.github.com"
+      timeout_seconds: 30
+      max_results: 30
+      search_types:
+        - "repositories"
+        - "code"
+        - "issues"
+        - "discussions"
+      rate_limit:
+        enabled: true
+        requests_per_second: 0.5
+
+    stackoverflow_search:
+      enabled: true
+      description: "搜索 StackOverflow 技术问答"
+      owner_agent: "searcher"
+      api_type: "stackexchange"
+      api_key: "${STACKEXCHANGE_API_KEY}"
+      base_url: "https://api.stackexchange.com/2.3"
+      site: "stackoverflow"
+      timeout_seconds: 30
+      max_results: 20
+      sort_by: "votes"
+      order: "desc"
+
+    news_search:
+      enabled: true
+      description: "搜索实时新闻"
+      owner_agent: "searcher"
+      default_engine: "newsapi"
+      engines:
+        newsapi:
+          api_type: "newsapi"
+          api_key: "${NEWSAPI_KEY}"
+          base_url: "https://newsapi.org/v2"
+          timeout_seconds: 30
+          max_results: 20
+        gnews:
+          api_type: "gnews"
+          api_key: "${GNEWS_API_KEY}"
+          base_url: "https://gnews.io/api/v4"
+          timeout_seconds: 30
+          max_results: 20
+
+  crawler:
+    http_crawler:
+      enabled: true
+      description: "通用静态网页爬虫"
+      owner_agent: "searcher"
+      user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+      timeout_seconds: 30
+      max_retries: 3
+      follow_redirects: true
+      verify_ssl: true
+      headers:
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        Accept-Language: "zh-CN,zh;q=0.9,en;q=0.8"
+
+    dynamic_crawler:
+      enabled: false
+      description: "动态页面爬虫，渲染 JavaScript 页面"
+      owner_agent: "searcher"
+      engine: "playwright"
+      browser: "chromium"
+      headless: true
+      timeout_seconds: 60
+      wait_until: "networkidle"
+      viewport:
+        width: 1920
+        height: 1080
+      user_data_dir: "/tmp/playwright_profile"
+
+    anti_ban:
+      enabled: true
+      description: "反爬处理：代理池、指纹伪装、限流检测"
+      owner_agent: "searcher"
+      proxy_pool:
+        enabled: false
+        sources: []
+        rotation: "round_robin"
+      request_delay:
+        min_seconds: 1
+        max_seconds: 3
+      fingerprint_spoofing:
+        enabled: true
+        random_user_agent: true
+        random_headers: true
+      rate_limit_detection:
+        enabled: true
+        retry_after_header: "Retry-After"
+        max_retries: 5
+        base_wait_seconds: 60
+
+    content_parser:
+      method: "readability"
+      remove_ads: true
+      remove_navigation: true
+      min_content_length: 100
+
+    site_policies:
+      default:
+        concurrency_limit: 2
+        request_delay_ms: 1000
+        timeout_seconds: 60
+        max_retries: 3
+        backoff: "exponential"
+      github.com:
+        concurrency_limit: 1
+        request_delay_ms: 1500
+        timeout_seconds: 60
+        max_retries: 3
+        backoff: "exponential"
+      stackoverflow.com:
+        concurrency_limit: 1
+        request_delay_ms: 2000
+        timeout_seconds: 60
+        max_retries: 3
+        backoff: "exponential"
+
+  mcp:
+    enabled: true
+    default_timeout_seconds: 30
+    servers: []
+    rules:
+      require_tool_contract: true
+      require_context_manager: true
+      deny_unregistered_servers: true
+      sanitize_outputs: true
+
+  tools_registry:
+    web_search:
+      enabled: true
+      description: "通用网页搜索"
+      owner_agent: "searcher"
+      input_kind: "search_api"
+    academic_search:
+      enabled: true
+      description: "学术搜索"
+      owner_agent: "searcher"
+      input_kind: "search_api"
+    github_search:
+      enabled: true
+      description: "GitHub 搜索"
+      owner_agent: "searcher"
+      input_kind: "search_api"
+    stackoverflow_search:
+      enabled: true
+      description: "StackOverflow 搜索"
+      owner_agent: "searcher"
+      input_kind: "search_api"
+    news_search:
+      enabled: true
+      description: "新闻搜索"
+      owner_agent: "searcher"
+      input_kind: "search_api"
+    http_crawler:
+      enabled: true
+      description: "通用网页爬虫"
+      owner_agent: "searcher"
+      input_kind: "crawler"
+    dynamic_crawler:
+      enabled: false
+      description: "动态页面爬虫"
+      owner_agent: "searcher"
+      input_kind: "crawler"
+    anti_ban:
+      enabled: true
+      description: "反爬处理"
+      owner_agent: "searcher"
+      input_kind: "crawler"

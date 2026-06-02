@@ -61,6 +61,15 @@ agents:
     tools:
       - "search_api"
       - "crawler"
+      - "web_search"
+      - "academic_search"
+      - "github_search"
+      - "stackoverflow_search"
+      - "news_search"
+      - "http_crawler"
+      - "dynamic_crawler"
+      - "anti_ban"
+      - "mcp_gateway"
     state_reads:
       - "topic_config._plan"
       - "source_sites"
@@ -123,6 +132,10 @@ agents:
       - "query"
       - "user_id"
     storage:
+      redis:
+        - "session:{user_id}:{session_id}:context"
+        - "user:{user_id}:semantic"
+        - "session:{user_id}:{session_id}:retriever_worklog"
       db:
         - "knowledge_chunks"
         - "reports"

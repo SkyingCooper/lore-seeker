@@ -214,13 +214,13 @@ Planner 模块同时实现 `quality_check` 节点，对 Markdown 报告评分并
 3.12 不通过但达到最大迭代次数时，接受最后一次报告并结束流程。
 
 4. 任务收尾
-4.1 报告通过后，总结本次任务体现出的用户偏好。
-4.2 将用户偏好写入 `zr_user_preferences`。
-4.3 总结本次 Agent 执行经验，并按层级写入 `zr_skill_memories`。
-4.4 将 Redis 中各 Agent 的工作细节流程持久化到 `zr_working_sessions`，用于错误排查。
-4.5 如果任务配置包含周期频率，根据当前任务创建下一次周期性任务。
-4.6 将 `quality_score`、`quality_feedback` 和 `final` 写入 state。
-4.7 更新任务状态为完成。
+4.1 报告通过后，总结本次任务体现出的用户偏好和执行经验。
+4.2 Planner 判断是否需要写入或更新记忆。
+4.3 如需要写入记忆，Planner 生成记忆管理子 Agent，代理执行 `zr_user_preferences`、`zr_skill_memories` 和 `zr_working_sessions` 的更新。
+4.4 如果任务配置包含周期频率，根据当前任务创建下一次周期性任务。
+4.5 将 `quality_score`、`quality_feedback` 和 `final` 写入 state。
+4.6 更新任务状态为完成。
+4.7 统计此次任务消耗的 token 情况，按 `search`、`sort`、`retrieve`、`planner`、`memory_manager`、`context_manager` 等环节汇总，并写入 `reports.token_usage`。
 
 Prompt 策略：
 
@@ -234,6 +234,7 @@ Prompt 策略：
 - 不达标报告触发 Organizer 重试。
 - 超过重试次数后流程能结束，不会无限循环。
 - 任务完成后用户偏好、经验和工作会话可被追踪。
+- 任务完成后 token 消耗按环节写入报告记录。
 
 ## 5. 个性化记忆
 
@@ -287,6 +288,9 @@ Planner 读写的关键 state 字段：
 
 ## 7. 已确认待实现
 
-- 完整实现 `zr_user_preferences` 自动更新。
-- 完整实现 `zr_skill_memories` 分级写入。
-- 完整实现 Redis 工作区到 `zr_working_sessions` 的持久化。
+- Planner 在任务收尾阶段生成记忆管理子 Agent。
+- 记忆管理子 Agent 完整实现 `zr_user_preferences` 自动更新。
+- 记忆管理子 Agent 完整实现 `zr_skill_memories` 分级写入和使用反馈更新。
+- 记忆管理子 Agent 完整实现 Redis 工作区到 `zr_working_sessions` 的持久化。
+
+记忆管理细节见 `agent-memory-manager.md`。

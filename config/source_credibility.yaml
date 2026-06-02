@@ -1,0 +1,26 @@
+source_credibility:
+  # 相似度高于该值的正文视为重复内容。
+  duplicate_similarity_threshold: 0.85
+
+  # 低质量内容不单独建表，保留在 search_histories.raw_results 并写入 discard_reason。
+  low_quality_storage: "search_histories.raw_results"
+
+  base_scores:
+    official_docs: 90
+    github: 80
+    stackoverflow: 70
+    verified_community: 65
+    technical_blog: 50
+    generic_blog: 40
+
+  bonuses:
+    updated_within_30_days: 5
+    verified_author: 10
+    has_code_examples: 5
+    cited_by_more_than_3_sources: 5
+
+  discard_reasons:
+    - "too_short"
+    - "low_relevance"
+    - "duplicate"
+    - "boilerplate"

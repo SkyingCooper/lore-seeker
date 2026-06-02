@@ -1,0 +1,60 @@
+celery:
+  # Redis 同时作为 Celery broker 和 result backend，连接串仍由 .env / backend/config.toml 提供。
+  broker:
+    provider: "redis"
+    result_backend: "redis"
+
+  task_defaults:
+    result_expires_seconds: 86400
+    max_retries: 3
+    retry_backoff: "exponential"
+    soft_time_limit_seconds: 300
+    hard_time_limit_seconds: 360
+
+  beat:
+    memory_eviction:
+      enabled: true
+      cron: "0 2 * * *"
+      timezone: "Asia/Shanghai"
+      queue: "maintenance"
+
+    periodic_search_dispatcher:
+      enabled: true
+      scan_interval_seconds: 300
+      lookahead_seconds: 300
+      queue: "planner"
+
+  task_routes:
+    search_task:
+      queue: "search"
+      soft_time_limit_seconds: 600
+      hard_time_limit_seconds: 720
+      max_retries: 3
+
+    organize_task:
+      queue: "organizer"
+      soft_time_limit_seconds: 180
+      hard_time_limit_seconds: 240
+      max_retries: 3
+
+    memory_eviction:
+      queue: "maintenance"
+      soft_time_limit_seconds: 180
+      hard_time_limit_seconds: 240
+      max_retries: 2
+
+  memory_policy:
+    excellent_task_score_threshold: 95
+    semantic_confidence_min: 0.6
+    semantic_max_idle_days: 30
+    episodic_half_life_days: 7
+    episodic_archive_after_days: 30
+    episodic_score_min: 0.1
+    skill_archive_success_rate_max: 0.3
+    skill_archive_min_usage_count: 5
+    skill_archive_idle_days: 180
+
+  periodic_report_version:
+    sequence_scope: "user_topic_date"
+    redis_key_pattern: "report_version:{user_id}:{topic_id}:{date}:sequence"
+    ttl_seconds: 172800

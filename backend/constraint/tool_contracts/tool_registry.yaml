@@ -4,6 +4,7 @@ description: "Lore Seeker Tool 注册信息。Agent 调用 Tool 前必须匹配 
 defaults:
   input_schema: "schemas/tool_input_schema.json"
   output_schema: "schemas/tool_output_schema.json"
+  runtime_config: "../../../config/tool_mcp.yaml"
   retry:
     max_attempts: 3
     backoff: "exponential"
@@ -21,7 +22,52 @@ tools:
     input_kind: "search_api"
     output_data_shape: "results: [{title, url, content, provider, score}]"
     timeout_seconds: 30
-    providers: ["tavily", "serpapi", "bing"]
+    providers: ["tavily", "serpapi", "bing", "serper"]
+    retryable_errors: ["timeout", "http_5xx", "provider_error", "rate_limit"]
+
+  web_search:
+    owner: "backend/services/search_service.py"
+    allowed_callers: ["searcher"]
+    input_kind: "search_api"
+    output_data_shape: "results: [{title, url, content, provider, score}]"
+    config_path: "tool_mcp.search.web_search"
+    timeout_seconds: 30
+    retryable_errors: ["timeout", "http_5xx", "provider_error", "rate_limit"]
+
+  academic_search:
+    owner: "backend/services/search_service.py"
+    allowed_callers: ["searcher"]
+    input_kind: "search_api"
+    output_data_shape: "papers: [{title, url, abstract, authors, published_at, score}]"
+    config_path: "tool_mcp.search.academic_search"
+    timeout_seconds: 30
+    retryable_errors: ["timeout", "http_5xx", "provider_error", "rate_limit"]
+
+  github_search:
+    owner: "backend/services/search_service.py"
+    allowed_callers: ["searcher"]
+    input_kind: "search_api"
+    output_data_shape: "items: [{title, url, repository, content, score}]"
+    config_path: "tool_mcp.search.github_search"
+    timeout_seconds: 30
+    retryable_errors: ["timeout", "http_5xx", "provider_error", "rate_limit"]
+
+  stackoverflow_search:
+    owner: "backend/services/search_service.py"
+    allowed_callers: ["searcher"]
+    input_kind: "search_api"
+    output_data_shape: "questions: [{title, url, answer_count, score, content}]"
+    config_path: "tool_mcp.search.stackoverflow_search"
+    timeout_seconds: 30
+    retryable_errors: ["timeout", "http_5xx", "provider_error", "rate_limit"]
+
+  news_search:
+    owner: "backend/services/search_service.py"
+    allowed_callers: ["searcher"]
+    input_kind: "search_api"
+    output_data_shape: "articles: [{title, url, source, published_at, content}]"
+    config_path: "tool_mcp.search.news_search"
+    timeout_seconds: 30
     retryable_errors: ["timeout", "http_5xx", "provider_error", "rate_limit"]
 
   crawler:
@@ -32,15 +78,44 @@ tools:
     timeout_seconds: 60
     concurrency_limit: 10
     per_site_policy_required: true
-    site_policy_source: "backend/config.toml[crawler.site_policies]"
+    site_policy_source: "config/tool_mcp.yaml[tool_mcp.crawler.site_policies]"
     retryable_errors: ["timeout", "http_5xx"]
     non_retryable_errors: ["http_403", "http_404"]
+
+  http_crawler:
+    owner: "backend/services/search_service.py"
+    allowed_callers: ["searcher"]
+    input_kind: "crawler"
+    output_data_shape: "pages: [{title, url, content, status_code}]"
+    config_path: "tool_mcp.crawler.http_crawler"
+    timeout_seconds: 30
+    retryable_errors: ["timeout", "http_5xx"]
+    non_retryable_errors: ["http_403", "http_404"]
+
+  dynamic_crawler:
+    owner: "backend/services/search_service.py"
+    allowed_callers: ["searcher"]
+    input_kind: "crawler"
+    output_data_shape: "pages: [{title, url, content, status_code, rendered: true}]"
+    config_path: "tool_mcp.crawler.dynamic_crawler"
+    timeout_seconds: 60
+    retryable_errors: ["timeout", "http_5xx", "browser_error"]
+    non_retryable_errors: ["http_403", "http_404"]
+
+  anti_ban:
+    owner: "backend/services/search_service.py"
+    allowed_callers: ["searcher"]
+    input_kind: "crawler"
+    output_data_shape: "policy: {headers, delay_seconds, proxy, retry_after_seconds}"
+    config_path: "tool_mcp.crawler.anti_ban"
+    timeout_seconds: 5
+    retryable_errors: ["rate_limit", "proxy_error"]
 
   embedding:
     owner: "backend/core/embedding_router.py"
     allowed_callers: ["organizer", "retriever"]
     input_kind: "embedding"
-    output_data_shape: "vectors: [[float]], dimension: 1536"
+    output_data_shape: "vectors: [[float]], dimension: 1024"
     timeout_seconds: 60
     retryable_errors: ["timeout", "provider_error"]
 
@@ -59,6 +134,15 @@ tools:
     output_data_shape: "content: string, usage: object"
     timeout_seconds: 120
     retryable_errors: ["timeout", "provider_error", "rate_limit"]
+
+  mcp_gateway:
+    owner: "backend/constraint/validation/middleware.py"
+    allowed_callers: ["planner", "searcher", "organizer", "retriever", "worker"]
+    input_kind: "mcp"
+    output_data_shape: "result: object, server: string, tool: string"
+    config_path: "tool_mcp.mcp"
+    timeout_seconds: 30
+    retryable_errors: ["timeout", "server_unavailable", "rate_limit"]
 
   redis:
     owner: "backend/core/task_redis.py"

@@ -20,7 +20,24 @@
     },
     "tool_name": {
       "type": "string",
-      "enum": ["search_api", "crawler", "embedding", "reranker", "llm", "redis", "postgres"]
+      "enum": [
+        "search_api",
+        "crawler",
+        "web_search",
+        "academic_search",
+        "github_search",
+        "stackoverflow_search",
+        "news_search",
+        "http_crawler",
+        "dynamic_crawler",
+        "anti_ban",
+        "embedding",
+        "reranker",
+        "llm",
+        "mcp_gateway",
+        "redis",
+        "postgres"
+      ]
     },
     "status": {
       "type": "string",

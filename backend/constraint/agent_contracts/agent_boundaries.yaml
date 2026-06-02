@@ -88,6 +88,15 @@ agents:
       denied_tools:
         - "search_api"
         - "crawler"
+        - "web_search"
+        - "academic_search"
+        - "github_search"
+        - "stackoverflow_search"
+        - "news_search"
+        - "http_crawler"
+        - "dynamic_crawler"
+        - "anti_ban"
+        - "mcp_gateway"
         - "embedding"
         - "reranker"
       allowed_operations:
@@ -213,7 +222,16 @@ agents:
       allowed_tools:
         - "search_api"
         - "crawler"
+        - "web_search"
+        - "academic_search"
+        - "github_search"
+        - "stackoverflow_search"
+        - "news_search"
+        - "http_crawler"
+        - "dynamic_crawler"
+        - "anti_ban"
         - "llm"
+        - "mcp_gateway"
         - "redis"
         - "postgres"
       denied_tools:
@@ -260,8 +278,9 @@ agents:
         - "search_tasks"
         - "search_histories"
       allowed_config_paths:
-        - "crawler.site_policies"
-        - "search"
+        - "tool_mcp.search"
+        - "tool_mcp.crawler"
+        - "tool_mcp.mcp"
       denied_data:
         - "other_users_data"
         - ".env"
@@ -471,6 +490,7 @@ agents:
         - "reranker"
         - "llm"
         - "postgres"
+        - "redis"
       denied_tools:
         - "search_api"
         - "crawler"
@@ -480,6 +500,11 @@ agents:
         - "rerank_retrieved_chunks"
         - "generate_context_grounded_answer"
         - "return_sources"
+        - "load_retriever_session_context"
+        - "cache_retriever_session_context"
+        - "load_retriever_semantic_memory"
+        - "cache_retriever_semantic_memory"
+        - "append_retriever_worklog"
       denied_operations:
         - "decompose_task"
         - "execute_search_api"
@@ -498,7 +523,10 @@ agents:
         - "retrieved_chunks"
         - "answer"
         - "sources"
-      allowed_redis_keys: []
+      allowed_redis_keys:
+        - "session:{user_id}:{session_id}:context"
+        - "user:{user_id}:semantic"
+        - "session:{user_id}:{session_id}:retriever_worklog"
       allowed_db_tables:
         - "knowledge_chunks"
         - "reports"

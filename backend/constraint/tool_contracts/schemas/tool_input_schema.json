@@ -20,7 +20,24 @@
     },
     "tool_name": {
       "type": "string",
-      "enum": ["search_api", "crawler", "embedding", "reranker", "llm", "redis", "postgres"]
+      "enum": [
+        "search_api",
+        "crawler",
+        "web_search",
+        "academic_search",
+        "github_search",
+        "stackoverflow_search",
+        "news_search",
+        "http_crawler",
+        "dynamic_crawler",
+        "anti_ban",
+        "embedding",
+        "reranker",
+        "llm",
+        "mcp_gateway",
+        "redis",
+        "postgres"
+      ]
     },
     "caller": {
       "type": "string",
@@ -33,6 +50,7 @@
         { "$ref": "#/$defs/embedding_input" },
         { "$ref": "#/$defs/reranker_input" },
         { "$ref": "#/$defs/llm_input" },
+        { "$ref": "#/$defs/mcp_input" },
         { "$ref": "#/$defs/redis_input" },
         { "$ref": "#/$defs/postgres_input" }
       ]
@@ -74,7 +92,25 @@
         "kind": { "type": "string", "const": "search_api" },
         "query": { "type": "string", "minLength": 1, "maxLength": 240 },
         "source_sites": { "$ref": "#/$defs/source_sites" },
-        "provider": { "type": "string", "enum": ["tavily", "serpapi", "bing"] },
+        "provider": {
+          "type": "string",
+          "enum": [
+            "tavily",
+            "serpapi",
+            "bing",
+            "serper",
+            "google",
+            "baidu",
+            "duckduckgo",
+            "google_scholar",
+            "semantic_scholar",
+            "arxiv",
+            "github",
+            "stackexchange",
+            "newsapi",
+            "gnews"
+          ]
+        },
         "max_results": { "type": "integer", "minimum": 1, "maximum": 20, "default": 10 }
       }
     },
@@ -108,7 +144,7 @@
           "items": { "type": "string", "minLength": 1 }
         },
         "model": { "type": ["string", "null"], "maxLength": 120 },
-        "dimension": { "type": "integer", "enum": [1536] }
+        "dimension": { "type": "integer", "enum": [1024] }
       }
     },
     "reranker_input": {
@@ -162,6 +198,17 @@
         "key": { "type": "string", "minLength": 1, "maxLength": 300 },
         "value": {},
         "ttl_seconds": { "type": ["integer", "null"], "minimum": 1, "maximum": 2592000 }
+      }
+    },
+    "mcp_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "server", "tool", "arguments"],
+      "properties": {
+        "kind": { "type": "string", "const": "mcp" },
+        "server": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "tool": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "arguments": { "type": "object", "additionalProperties": true }
       }
     },
     "postgres_input": {

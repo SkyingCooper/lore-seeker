@@ -107,7 +107,30 @@ user_prompt = render_prompt("planner.plan.user", query=query, topic_config=topic
 - 重复 `prompt-id` 必须抛出 `ValueError`。
 - 所有 Agent LLM 调用前的 `prompt_chars` 使用渲染后的提示词长度计算。
 
-## 4. 当前接入点
+## 4. 上下文窗口管理
+
+### 背景
+
+Prompt 渲染不只是模板变量替换，还涉及上下文选择、token 预算、裁剪、摘要和压缩。如果 Agent 直接拼接上下文，容易把用户当前问题、系统约束、工具结果和历史对话混在一起，导致超出模型上下文窗口。
+
+### 决策
+
+所有进入 LLM 的上下文必须先经过 Context Manager。上下文管理细节以 `context-manager.md` 和 `config/context_manager.yaml` 为准。
+
+### 实现要点
+
+- Agent 之间交互使用 `agent_communication` 场景。
+- Tool / MCP 调用使用 `tool_call` 场景。
+- Redis / DB 交互使用 `storage_interaction` 场景。
+- P0 用户当前问题和 P1 系统指令绝不裁剪。
+- 超限时按 P5 到 P2 的顺序裁剪、摘要和压缩。
+
+### 验收标准
+
+- Agent 不直接把未管理的大段上下文塞入 prompt。
+- prompt 超限时必须有裁剪、摘要、压缩或告警记录。
+
+## 5. 当前接入点
 
 ### 背景
 

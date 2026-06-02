@@ -156,7 +156,7 @@ Searcher 可以调用搜索 API、爬虫、LLM、Redis 和 Postgres，但不能�
 
 - 可访问 `search_tasks`、`search_histories`。
 - 可写 `task:{task_id}:subtasks`、`task:{task_id}:results_raw`、`task:{task_id}:working_log`。
-- 站点限流策略只能从 `backend/config.toml` 的 `crawler.site_policies` 读取。
+- 站点限流策略只能从 `config/tool_mcp.yaml` 的 `tool_mcp.crawler.site_policies` 读取。
 
 ### 验收标准
 
@@ -213,7 +213,7 @@ Retriever 负责对当前用户知识库做向量召回、重排序和基于上�
 
 ### 决策
 
-Retriever 只能读取当前用户的知识切片和报告上下文，不能写任务、写报告、搜索、爬虫或写记忆。
+Retriever 只能读取当前用户的知识切片和报告上下文，并且只能访问自己的会话级 Redis key。它不能写任务、写报告、搜索、爬虫或直接写长期记忆表。
 
 ### 实现要点
 
@@ -224,6 +224,11 @@ Retriever 只能读取当前用户的知识切片和报告上下文，不能写�
 - `rerank_retrieved_chunks`
 - `generate_context_grounded_answer`
 - `return_sources`
+- `load_retriever_session_context`
+- `cache_retriever_session_context`
+- `load_retriever_semantic_memory`
+- `cache_retriever_semantic_memory`
+- `append_retriever_worklog`
 
 禁止能力：
 
@@ -246,10 +251,17 @@ search_tasks.user_id = current_user.id
 search_tasks.deleted_at IS NULL
 ```
 
+允许 Redis key：
+
+- `session:{user_id}:{session_id}:context`
+- `user:{user_id}:semantic`
+- `session:{user_id}:{session_id}:retriever_worklog`
+
 ### 验收标准
 
 - Retriever 不能检索未经过用户隔离的 `knowledge_chunks`。
-- Retriever 不能写任何长期业务数据。
+- Retriever 不能直接写任何长期业务数据。
+- Retriever 只能访问自身会话级 Redis key。
 - Retriever 生命周期为请求级，超时后直接取消。
 
 ## 6. 权限等级

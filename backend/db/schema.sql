@@ -92,7 +92,7 @@ CREATE TABLE search_tasks (
     topic_id      BIGINT       NOT NULL,
     query         TEXT,
     source_sites  JSONB        NOT NULL DEFAULT '[]',
-    search_mode   VARCHAR(20)  NOT NULL DEFAULT 'api',
+    search_mode   VARCHAR(20)  NOT NULL DEFAULT 'mixed',
     frequency     VARCHAR(20)  NOT NULL DEFAULT 'once',
     status        VARCHAR(20)  NOT NULL DEFAULT 'pending',
     deleted_at    TIMESTAMPTZ,
@@ -135,6 +135,7 @@ CREATE TABLE reports (
     content_md          TEXT,
     toc                 JSONB        NOT NULL DEFAULT '[]',
     summary             TEXT,
+    token_usage         JSONB        NOT NULL DEFAULT '{"total": 0, "breakdown": {}, "model_used": {}, "timestamp": null}',
     user_satisfaction   VARCHAR(20),
     satisfaction_notes  TEXT,
     created_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW()
@@ -154,6 +155,7 @@ COMMENT ON COLUMN reports.quality_score        IS '大模型评分';
 COMMENT ON COLUMN reports.content_md           IS '大模型分析总结（Markdown）';
 COMMENT ON COLUMN reports.toc                  IS '报告目录结构';
 COMMENT ON COLUMN reports.summary              IS '报告摘要';
+COMMENT ON COLUMN reports.token_usage          IS '此次任务消耗的 token 数量，按 search/sort/retrieve/planner/memory_manager/context_manager 等环节细分';
 COMMENT ON COLUMN reports.user_satisfaction    IS '用户满意度：dissatisfied / neutral / satisfied';
 COMMENT ON COLUMN reports.satisfaction_notes   IS '用户不满意的具体描述';
 COMMENT ON COLUMN reports.created_at           IS '报告生成时间';
@@ -163,16 +165,24 @@ COMMENT ON COLUMN reports.created_at           IS '报告生成时间';
 -- =============================================================================
 
 CREATE TABLE knowledge_chunks (
-    id             BIGSERIAL    PRIMARY KEY,
-    report_id      BIGINT       NOT NULL,
-    chunk_index    INTEGER      NOT NULL,
-    section_title  VARCHAR(500),
-    section_level  INTEGER,
-    section_anchor VARCHAR(255),
-    parent_title   VARCHAR(500),
-    content        TEXT         NOT NULL,
-    embedding      vector(1536) NOT NULL,
-    metadata       JSONB        NOT NULL DEFAULT '{}'
+    id                BIGSERIAL    PRIMARY KEY,
+    report_id         BIGINT       NOT NULL,
+    chunk_index       INTEGER      NOT NULL,
+    section_title     VARCHAR(500),
+    section_level     INTEGER,
+    section_anchor    VARCHAR(255),
+    parent_title      VARCHAR(500),
+    content           TEXT         NOT NULL,
+    content_marked    TEXT,
+    summary           TEXT,
+    source_search_ids BIGINT[]     NOT NULL DEFAULT '{}',
+    embedding         vector(1024) NOT NULL,
+    metadata          JSONB        NOT NULL DEFAULT '{}',
+    search_vector     tsvector     GENERATED ALWAYS AS (
+        setweight(to_tsvector('simple', coalesce(section_title, '')), 'A') ||
+        setweight(to_tsvector('simple', coalesce(summary, '')), 'A') ||
+        setweight(to_tsvector('simple', coalesce(content, '')), 'B')
+    ) STORED
 );
 COMMENT ON TABLE  knowledge_chunks                IS '报告按标题分层切片后的向量化存储，支持三层目录导航';
 COMMENT ON COLUMN knowledge_chunks.id             IS '切片主键，自增';
@@ -183,24 +193,36 @@ COMMENT ON COLUMN knowledge_chunks.section_level  IS '标题层级：1/2/3';
 COMMENT ON COLUMN knowledge_chunks.section_anchor IS 'TOC 锚点 slug';
 COMMENT ON COLUMN knowledge_chunks.parent_title   IS '父级章节标题，用于构建面包屑导航';
 COMMENT ON COLUMN knowledge_chunks.content        IS '切片文本内容';
-COMMENT ON COLUMN knowledge_chunks.embedding      IS '切片内容的向量表示，维度 1536';
-COMMENT ON COLUMN knowledge_chunks.metadata       IS '扩展元数据，如来源 URL 等';
+COMMENT ON COLUMN knowledge_chunks.content_marked IS '与前一版本对比后的带标记 HTML；del 表示删除，ins.added 表示新增，ins.modified 表示修改';
+COMMENT ON COLUMN knowledge_chunks.summary        IS '切片内容摘要（50-150字），用于检索预览和快速筛选';
+COMMENT ON COLUMN knowledge_chunks.source_search_ids IS '切片引用的原始搜索历史 ID 集合，通过 search_histories.id 反查来源详情';
+COMMENT ON COLUMN knowledge_chunks.embedding      IS '切片摘要的向量表示，维度 1024';
+COMMENT ON COLUMN knowledge_chunks.metadata       IS '扩展元数据，不存重复来源详情，来源通过 source_search_ids 反查';
+COMMENT ON COLUMN knowledge_chunks.search_vector  IS 'PostgreSQL tsvector 关键词检索列，基于 section_title、summary、content 自动生成';
 
 -- =============================================================================
 -- 搜索历史表
 -- =============================================================================
 
 CREATE TABLE search_histories (
-    id          BIGSERIAL    PRIMARY KEY,
-    parent_id   BIGINT,
-    user_id     BIGINT       NOT NULL,
-    task_id     BIGINT       NOT NULL,
-    topic_id    BIGINT,
-    report_id   BIGINT,
-    query       TEXT         NOT NULL,
-    raw_results JSONB        NOT NULL DEFAULT '[]',
-    version     INTEGER      NOT NULL DEFAULT 1,
-    created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    id                 BIGSERIAL    PRIMARY KEY,
+    parent_id          BIGINT,
+    user_id            BIGINT       NOT NULL,
+    task_id            BIGINT       NOT NULL,
+    topic_id           BIGINT,
+    report_id          BIGINT,
+    query              TEXT         NOT NULL,
+    source_sites       JSONB        NOT NULL DEFAULT '[]',
+    search_mode        VARCHAR(20)  NOT NULL DEFAULT 'mixed',
+    status             VARCHAR(20)  NOT NULL DEFAULT 'completed',
+    result_count       INTEGER      NOT NULL DEFAULT 0,
+    retry_count        INTEGER      NOT NULL DEFAULT 0,
+    execution_duration INTEGER,
+    failure_reason     TEXT,
+    raw_results        JSONB        NOT NULL DEFAULT '[]',
+    metadata           JSONB        NOT NULL DEFAULT '{}',
+    version            INTEGER      NOT NULL DEFAULT 1,
+    created_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 COMMENT ON TABLE  search_histories              IS '用户搜索历史，原始搜索结果存储';
 COMMENT ON COLUMN search_histories.id           IS '历史记录主键，自增';
@@ -210,7 +232,15 @@ COMMENT ON COLUMN search_histories.task_id      IS '关联任务 ID（关联 sea
 COMMENT ON COLUMN search_histories.topic_id     IS '关联主题 ID（关联 topics.id）';
 COMMENT ON COLUMN search_histories.report_id    IS '关联报告 ID（关联 reports.id）';
 COMMENT ON COLUMN search_histories.query        IS '搜索查询文本';
-COMMENT ON COLUMN search_histories.raw_results  IS '原始搜索结果 JSON';
+COMMENT ON COLUMN search_histories.source_sites IS '本次实际执行的搜索来源集合，而不是任务期望来源';
+COMMENT ON COLUMN search_histories.search_mode  IS '本次实际执行的搜索方式：api / crawl / mixed';
+COMMENT ON COLUMN search_histories.status       IS '本次搜索执行状态：completed / partial / failed';
+COMMENT ON COLUMN search_histories.result_count IS '本次搜索返回的有效结果数量';
+COMMENT ON COLUMN search_histories.retry_count  IS '本次搜索重试次数';
+COMMENT ON COLUMN search_histories.execution_duration IS '本次搜索耗时（秒）';
+COMMENT ON COLUMN search_histories.failure_reason IS '本次搜索失败或部分失败原因';
+COMMENT ON COLUMN search_histories.raw_results  IS '原始搜索结果 JSON，结果项需要保留来源、标题、URL、发布时间、摘要等详情';
+COMMENT ON COLUMN search_histories.metadata     IS '搜索策略、限流退避、扩展关键词、质量摘要等扩展元数据';
 COMMENT ON COLUMN search_histories.version      IS '搜索版本号';
 COMMENT ON COLUMN search_histories.created_at   IS '记录创建时间';
 
@@ -253,7 +283,9 @@ CREATE TABLE zr_episodic_logs (
     session_key VARCHAR(255),
     event_type  VARCHAR(50)  NOT NULL,
     content     TEXT         NOT NULL,
+    importance  FLOAT        NOT NULL DEFAULT 0.5,
     metadata    JSONB        NOT NULL DEFAULT '{}',
+    deleted_at  TIMESTAMPTZ,
     created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 COMMENT ON TABLE  zr_episodic_logs             IS '情景记忆：系统流水账日记，按事件类型记录每次对话和任务执行过程';
@@ -263,7 +295,9 @@ COMMENT ON COLUMN zr_episodic_logs.task_id     IS '关联搜索任务 ID（关�
 COMMENT ON COLUMN zr_episodic_logs.session_key IS '关联工作记忆的 session_key';
 COMMENT ON COLUMN zr_episodic_logs.event_type  IS '事件类型：conversation（对话）| task_run（任务执行）| search（搜索动作）| error（异常）';
 COMMENT ON COLUMN zr_episodic_logs.content     IS '事件完整内容';
+COMMENT ON COLUMN zr_episodic_logs.importance  IS '情景记忆重要性评分（0~1），用于淘汰排序';
 COMMENT ON COLUMN zr_episodic_logs.metadata    IS '扩展上下文，如 token 消耗、耗时、模型版本等';
+COMMENT ON COLUMN zr_episodic_logs.deleted_at  IS '逻辑删除时间，非 NULL 表示已删除或已淘汰';
 COMMENT ON COLUMN zr_episodic_logs.created_at  IS '事件发生时间';
 
 -- -----------------------------------------------------------------------------
@@ -274,9 +308,12 @@ CREATE TABLE zr_semantic_memories (
     title       VARCHAR(500) NOT NULL,
     summary     TEXT         NOT NULL,
     content     TEXT         NOT NULL,
-    embedding   vector(1536) NOT NULL,
+    embedding   vector(1024) NOT NULL,
     source_type VARCHAR(50),
     source_id   BIGINT,
+    confidence  FLOAT        NOT NULL DEFAULT 0.5,
+    last_accessed TIMESTAMPTZ,
+    deleted_at  TIMESTAMPTZ,
     created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 COMMENT ON TABLE  zr_semantic_memories             IS '语义记忆：从对话和任务中提炼的知识规律，embedding 基于 summary 计算，支持向量检索';
@@ -285,9 +322,12 @@ COMMENT ON COLUMN zr_semantic_memories.user_id     IS '所属用户 ID（关联 
 COMMENT ON COLUMN zr_semantic_memories.title       IS '一句话概括，用于快速索引和展示';
 COMMENT ON COLUMN zr_semantic_memories.summary     IS '精简摘要，用于快速预览；embedding 基于此字段计算';
 COMMENT ON COLUMN zr_semantic_memories.content     IS '完整内容，向量检索命中后按需加载';
-COMMENT ON COLUMN zr_semantic_memories.embedding   IS 'summary 的向量表示，维度 1536；用于语义相似度检索';
+COMMENT ON COLUMN zr_semantic_memories.embedding   IS 'summary 的向量表示，维度 1024；用于语义相似度检索';
 COMMENT ON COLUMN zr_semantic_memories.source_type IS '知识来源类型：report（来自报告）| conversation（来自对话）| manual（手动录入）';
 COMMENT ON COLUMN zr_semantic_memories.source_id   IS '来源记录 ID，与 source_type 配合使用，可为空';
+COMMENT ON COLUMN zr_semantic_memories.confidence  IS '语义记忆置信度（0~1），用于排序和淘汰';
+COMMENT ON COLUMN zr_semantic_memories.last_accessed IS '最近使用时间，用于淘汰排序';
+COMMENT ON COLUMN zr_semantic_memories.deleted_at  IS '逻辑删除时间，非 NULL 表示已删除或已淘汰';
 COMMENT ON COLUMN zr_semantic_memories.created_at  IS '记忆创建时间';
 
 -- -----------------------------------------------------------------------------
@@ -324,32 +364,74 @@ CREATE TRIGGER trg_zr_user_preferences_updated_at
 CREATE TABLE zr_skill_memories (
     id               BIGSERIAL    PRIMARY KEY,
     title            VARCHAR(255) NOT NULL,
+    "desc"           TEXT,
     content          TEXT         NOT NULL,
     citation         TEXT,
     scope            VARCHAR(20)  NOT NULL DEFAULT 'global',
     user_id          BIGINT,
     trigger_patterns JSONB        NOT NULL DEFAULT '[]',
     usage_count      INTEGER      NOT NULL DEFAULT 0,
+    success_count    INTEGER      NOT NULL DEFAULT 0,
+    fail_count       INTEGER      NOT NULL DEFAULT 0,
     last_used_at     TIMESTAMPTZ,
+    status           TEXT         NOT NULL DEFAULT 'active',
+    confidence       FLOAT        NOT NULL DEFAULT 0.5,
     created_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     updated_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
-COMMENT ON TABLE  zr_skill_memories                  IS 'Skill 记忆：操作 SOP 库，三层结构（title/content/citation）按需加载';
+COMMENT ON TABLE  zr_skill_memories                  IS 'Skill 记忆：操作 SOP 库，四段式结构（title/desc/content/citation）按阶段加载';
 COMMENT ON COLUMN zr_skill_memories.id               IS 'Skill 记忆主键，自增';
-COMMENT ON COLUMN zr_skill_memories.title            IS '一级：关键词/标题，用于快速匹配和索引';
-COMMENT ON COLUMN zr_skill_memories.content          IS '二级：完整 SOP 步骤内容，命中后加载';
-COMMENT ON COLUMN zr_skill_memories.citation         IS '三级：引用与解释，含来源说明、边界条件、例外情况';
+COMMENT ON COLUMN zr_skill_memories.title            IS 'Skill 名字，用于快速匹配、展示和索引';
+COMMENT ON COLUMN zr_skill_memories."desc"           IS 'Skill 描述，作为第一阶段加载内容，用于判断是否需要加载完整 SOP';
+COMMENT ON COLUMN zr_skill_memories.content          IS '完整 SOP 步骤内容，命中后第二阶段加载';
+COMMENT ON COLUMN zr_skill_memories.citation         IS '引用与解释，含来源说明、边界条件、例外情况，按需第三阶段加载';
 COMMENT ON COLUMN zr_skill_memories.scope            IS '作用范围：global（系统内置）| user（用户私有）';
 COMMENT ON COLUMN zr_skill_memories.user_id          IS 'scope=user 时关联的用户 ID（关联 users.id）';
 COMMENT ON COLUMN zr_skill_memories.trigger_patterns IS '触发匹配关键词列表，格式 ["关键词1", "关键词2"]';
 COMMENT ON COLUMN zr_skill_memories.usage_count      IS '累计被调用次数';
+COMMENT ON COLUMN zr_skill_memories.success_count    IS '成功使用次数';
+COMMENT ON COLUMN zr_skill_memories.fail_count       IS '失败次数';
 COMMENT ON COLUMN zr_skill_memories.last_used_at     IS '最后一次被调用的时间，NULL 表示从未使用';
+COMMENT ON COLUMN zr_skill_memories.status           IS '有效性状态：active（可用）| deprecated（已废弃）| archived（已归档）';
+COMMENT ON COLUMN zr_skill_memories.confidence       IS 'Skill 置信度，默认 0.5，可按成功次数 / 总次数计算';
 COMMENT ON COLUMN zr_skill_memories.created_at       IS 'Skill 创建时间';
 COMMENT ON COLUMN zr_skill_memories.updated_at       IS 'Skill 最后更新时间，由触发器自动维护';
 
 CREATE TRIGGER trg_zr_skill_memories_updated_at
     BEFORE UPDATE ON zr_skill_memories
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- =============================================================================
+-- 护栏审计表
+-- =============================================================================
+
+CREATE TABLE log_guardrail (
+    id                BIGSERIAL    PRIMARY KEY,
+    user_id           BIGINT,
+    task_id           BIGINT,
+    agent_name        VARCHAR(50)  NOT NULL,
+    hook              VARCHAR(50)  NOT NULL,
+    operation         VARCHAR(255),
+    tool_name         VARCHAR(128),
+    allowed           BOOLEAN      NOT NULL,
+    alert_level       VARCHAR(20)  NOT NULL,
+    reason            TEXT,
+    sanitized_payload JSONB        NOT NULL DEFAULT '{}',
+    created_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+COMMENT ON TABLE  log_guardrail                   IS 'Pydantic AI Agent 护栏审计表，归档 warning/critical 等需要长期保留的护栏决策';
+COMMENT ON COLUMN log_guardrail.id                IS '护栏审计主键，自增';
+COMMENT ON COLUMN log_guardrail.user_id           IS '关联用户 ID，可为空';
+COMMENT ON COLUMN log_guardrail.task_id           IS '关联任务 ID，可为空';
+COMMENT ON COLUMN log_guardrail.agent_name        IS '触发护栏的 Agent 名称';
+COMMENT ON COLUMN log_guardrail.hook              IS '触发 hook，如 before_run、before_tool_call、after_tool_call、on_error';
+COMMENT ON COLUMN log_guardrail.operation         IS '被检查的操作名称';
+COMMENT ON COLUMN log_guardrail.tool_name         IS '被检查的 Tool 名称，可为空';
+COMMENT ON COLUMN log_guardrail.allowed           IS '护栏是否允许继续执行';
+COMMENT ON COLUMN log_guardrail.alert_level       IS '审计级别：info / warning / critical';
+COMMENT ON COLUMN log_guardrail.reason            IS '护栏决策原因';
+COMMENT ON COLUMN log_guardrail.sanitized_payload IS '脱敏后的上下文快照，禁止保存 token、password、authorization 等敏感字段';
+COMMENT ON COLUMN log_guardrail.created_at        IS '审计记录创建时间';
 
 -- =============================================================================
 -- 索引
@@ -365,6 +447,9 @@ CREATE INDEX idx_search_histories_user_id   ON search_histories(user_id);
 CREATE INDEX idx_search_histories_parent_id ON search_histories(parent_id);
 CREATE INDEX idx_search_histories_topic_id  ON search_histories(topic_id);
 CREATE INDEX idx_search_histories_report_id ON search_histories(report_id);
+CREATE INDEX idx_search_histories_mode_status ON search_histories(search_mode, status);
+CREATE INDEX idx_search_histories_source_sites ON search_histories USING GIN(source_sites);
+CREATE INDEX idx_knowledge_chunks_search_vector ON knowledge_chunks USING GIN(search_vector);
 CREATE INDEX idx_zr_working_sessions_user_id   ON zr_working_sessions(user_id);
 CREATE INDEX idx_zr_working_sessions_task_id   ON zr_working_sessions(task_id);
 CREATE INDEX idx_zr_episodic_logs_user_id      ON zr_episodic_logs(user_id);
@@ -374,6 +459,10 @@ CREATE INDEX idx_zr_episodic_logs_event_type   ON zr_episodic_logs(event_type);
 CREATE INDEX idx_zr_semantic_memories_user_id  ON zr_semantic_memories(user_id);
 CREATE INDEX idx_zr_user_preferences_user_id   ON zr_user_preferences(user_id);
 CREATE INDEX idx_zr_skill_memories_scope       ON zr_skill_memories(scope);
+CREATE INDEX idx_zr_skill_memories_status      ON zr_skill_memories(status);
+CREATE INDEX idx_log_guardrail_task_time       ON log_guardrail(task_id, created_at DESC);
+CREATE INDEX idx_log_guardrail_level_time      ON log_guardrail(alert_level, created_at DESC);
+CREATE INDEX idx_log_guardrail_agent_hook      ON log_guardrail(agent_name, hook);
 
 -- 复合索引（覆盖高频排序 + 过滤组合）
 CREATE INDEX idx_topics_user_created            ON topics(user_id, created_at DESC);
@@ -381,8 +470,12 @@ CREATE INDEX idx_search_tasks_user_created      ON search_tasks(user_id, created
 CREATE INDEX idx_search_histories_user_created  ON search_histories(user_id, created_at DESC);
 CREATE INDEX idx_search_histories_user_topic    ON search_histories(user_id, topic_id);
 CREATE INDEX idx_knowledge_chunks_report_chunk  ON knowledge_chunks(report_id, chunk_index);
+CREATE INDEX idx_knowledge_chunks_source_search_ids ON knowledge_chunks USING GIN(source_search_ids);
 CREATE INDEX idx_zr_episodic_logs_user_time        ON zr_episodic_logs(user_id, created_at DESC);
+CREATE INDEX idx_zr_episodic_logs_eviction         ON zr_episodic_logs(user_id, deleted_at, importance, created_at);
+CREATE INDEX idx_zr_semantic_memories_eviction     ON zr_semantic_memories(user_id, deleted_at, confidence, last_accessed);
+CREATE INDEX idx_zr_skill_memories_eviction        ON zr_skill_memories(scope, user_id, status, confidence, last_used_at);
 
--- 向量索引（数据量小时全表扫描足够，超过 10 万行后取消注释启用）
--- CREATE INDEX idx_knowledge_chunks_embedding  ON knowledge_chunks  USING hnsw (embedding vector_cosine_ops);
--- CREATE INDEX idx_zr_semantic_memories_embedding ON zr_semantic_memories USING hnsw (embedding vector_cosine_ops);
+-- 向量索引统一使用 HNSW。
+CREATE INDEX idx_knowledge_chunks_embedding  ON knowledge_chunks  USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX idx_zr_semantic_memories_embedding ON zr_semantic_memories USING hnsw (embedding vector_cosine_ops);

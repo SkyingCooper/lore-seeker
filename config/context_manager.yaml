@@ -1,0 +1,54 @@
+context_manager:
+  # 默认模型 token 上限。
+  default_max_tokens: 8192
+
+  # 触发裁剪的阈值。达到 max_tokens * trim_threshold 后开始裁剪。
+  trim_threshold: 0.8
+
+  # 各场景独立配置。
+  scenarios:
+    # 新任务开始首次载入，用于 Planner 启动前加载第一阶段 Skill 和用户偏好。
+    task_start_initial_load:
+      max_tokens: 4096
+      trim_threshold: 0.7
+      include_skill_stage_one: true
+      include_user_preferences: true
+      skill_stage_one_fields: ["id", "title", "desc"]
+
+    # Agent 之间交互。
+    agent_communication:
+      max_tokens: 8192
+      trim_threshold: 0.8
+
+    # Tool / MCP 调用。
+    tool_call:
+      max_tokens: 4096
+      trim_threshold: 0.7
+
+    # Redis / DB 交互。
+    storage_interaction:
+      max_tokens: 4096
+      trim_threshold: 0.7
+
+    # 保留用户原始命名，作为 db_interaction 场景别名。
+    db_interaction:
+      max_tokens: 4096
+      trim_threshold: 0.7
+
+  # 摘要参数。
+  summarizer:
+    method: "textrank"
+    implementation: "local"
+    target_ratio: 0.3
+    min_sentences: 2
+    max_sentences: 5
+
+  # 压缩参数，只有在裁剪和摘要后仍然超限时使用。
+  compressor:
+    method: "semantic"
+    implementation: "rule_based"
+    target_ratio: 0.15
+
+  # token 统计优先使用模型 provider 自带 tokenizer。
+  token_counter:
+    method: "provider_tokenizer"

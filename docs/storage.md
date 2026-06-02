@@ -32,7 +32,7 @@
 - 主键统一使用 `BIGSERIAL` / `BigInteger` 自增 ID。
 - 业务删除使用 `deleted_at` 逻辑删除。
 - PostgreSQL 初始化统一使用 `backend/db/schema.sql`。
-- pgvector 维度当前为 `1536`。
+- pgvector 维度统一为 `1024`。
 
 ### 验收标准
 
@@ -105,8 +105,56 @@ User -> Topic -> SearchTask -> Report -> KnowledgeChunk
 | `content_md` | Markdown 报告 |
 | `toc` | 目录 JSON |
 | `summary` | 摘要 |
+| `token_usage` | 此次任务消耗的 token 数量，按环节细分 |
 | `quality_score` | 质量评分 |
 | `user_satisfaction` | 用户满意度 |
+
+`reports.token_usage` 结构：
+
+```json
+{
+  "total": 15234,
+  "breakdown": {
+    "search": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total": 0
+    },
+    "sort": {
+      "input_tokens": 2340,
+      "output_tokens": 512,
+      "total": 2852
+    },
+    "retrieve": {
+      "input_tokens": 5890,
+      "output_tokens": 1024,
+      "total": 6914
+    },
+    "planner": {
+      "input_tokens": 3200,
+      "output_tokens": 1568,
+      "total": 4768
+    },
+    "memory_manager": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total": 0
+    },
+    "context_manager": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total": 0
+    }
+  },
+  "model_used": {
+    "search": null,
+    "sort": "qwen-turbo",
+    "retrieve": "qwen-turbo",
+    "planner": "qwen-plus"
+  },
+  "timestamp": "2026-06-02T14:30:00Z"
+}
+```
 
 #### knowledge_chunks
 
@@ -120,21 +168,36 @@ User -> Topic -> SearchTask -> Report -> KnowledgeChunk
 | `section_anchor` | TOC anchor |
 | `parent_title` | 父级章节 |
 | `content` | 切片正文 |
-| `embedding` | `vector(1536)` |
-| `metadata` | 扩展元数据 |
+| `content_marked` | 与前版本对比后的带标记 HTML，用于前端对比渲染 |
+| `summary` | 切片内容摘要（50-150 字），用于检索预览和快速筛选 |
+| `source_search_ids` | 原始搜索历史 ID 集合，通过 `search_histories.id` 反查来源 |
+| `embedding` | `summary` 的向量，`vector(1024)` |
+| `metadata` | 扩展元数据，不重复保存来源 URL / 标题 |
+| `search_vector` | PostgreSQL `tsvector` 关键词检索列 |
 
 #### search_histories
 
 | 字段 | 说明 |
 |---|---|
 | `id` | 自增主键 |
+| `parent_id` | 父级搜索历史；`NULL` 表示整体搜索记录，非空表示子任务级记录 |
 | `user_id` | 所属用户 |
 | `task_id` | 关联任务 |
 | `topic_id` | 关联主题 |
 | `report_id` | 关联报告 |
 | `query` | 搜索文本 |
-| `raw_results` | 原始搜索结果 |
+| `source_sites` | 本次实际执行的搜索来源集合 |
+| `search_mode` | 本次实际执行的搜索方式：`api / crawl / mixed` |
+| `status` | 本次搜索执行状态：`completed / partial / failed` |
+| `result_count` | 本次搜索返回的有效结果数量 |
+| `retry_count` | 本次搜索重试次数 |
+| `execution_duration` | 本次搜索耗时（秒） |
+| `failure_reason` | 本次搜索失败或部分失败原因 |
+| `raw_results` | 原始搜索结果，保留来源、标题、URL、发布时间、摘要等详情 |
+| `metadata` | 搜索策略、限流退避、扩展关键词、质量摘要等扩展元数据 |
 | `version` | 搜索版本 |
+
+`search_histories` 是来源事实表，记录 Searcher 本次实际搜索了哪些来源、用了什么方式、结果如何。`knowledge_chunks` 不再重复保存 URL、标题等来源详情，只保存 `source_search_ids`，通过搜索历史反查原始来源。
 
 ### 验收标准
 
@@ -161,27 +224,53 @@ Agent 记忆拆成五类表，字段按各自查询模式设计。
 | `zr_semantic_memories` | 长期语义记忆，summary embedding |
 | `zr_user_preferences` | 显式/隐式用户偏好 |
 | `zr_skill_memories` | SOP 技能库和触发词 |
+| `log_guardrail` | Pydantic AI 护栏 warning / critical 审计 |
 
 当前状态：
 
 - 表结构已建模。
 - 完整写入服务已确认待实现。
 
+记忆淘汰字段：
+
+| 表 | 字段 | 说明 |
+|---|---|---|
+| `zr_semantic_memories` | `confidence` | 语义记忆置信度，范围 `0~1`，用于排序和淘汰 |
+| `zr_semantic_memories` | `last_accessed` | 最近使用时间，用于淘汰 |
+| `zr_semantic_memories` | `deleted_at` | 逻辑删除时间 |
+| `zr_episodic_logs` | `importance` | 情景记忆重要性，范围 `0~1`，用于淘汰 |
+| `zr_episodic_logs` | `deleted_at` | 逻辑删除时间 |
+| `zr_skill_memories` | `success_count` | 成功使用次数 |
+| `zr_skill_memories` | `fail_count` | 失败次数 |
+| `zr_skill_memories` | `last_used_at` | 最近使用时间 |
+| `zr_skill_memories` | `status` | `active / deprecated / archived` |
+| `zr_skill_memories` | `confidence` | Skill 置信度，默认 `0.5`，可按成功次数 / 总次数计算 |
+
+Skill 记忆加载字段：
+
+| 字段 | 说明 |
+|---|---|
+| `title` | Skill 名字 |
+| `desc` | Skill 描述，第一阶段加载 |
+| `content` | 完整 SOP，第二阶段命中后加载 |
+| `citation` | 来源、边界和解释，第三阶段按需加载 |
+
 ### 验收标准
 
 - 用户偏好通过 `zr_user_preferences` 存储。
 - Agent 运行记录可关联 `task_id`。
 - 语义记忆可通过 pgvector 检索。
+- 有淘汰策略的记忆查询必须过滤 `deleted_at IS NULL`。
 
 ## 5. Redis Key
 
 ### 背景
 
-Redis 既承载 Celery，也承载 Session、Token 和任务工作区。
+Redis 既承载 Celery，也承载 Session、Token、任务工作区、Retriever 会话缓存、语义记忆缓存和 LLM 缓存。
 
 ### 决策
 
-Redis 只保存临时状态，长期业务数据最终落 PostgreSQL。
+Redis 只保存临时状态，长期业务数据最终落 PostgreSQL。Redis key、缓存内容、owner、TTL 和过期策略集中定义在 `redis.md`。
 
 ### 实现要点
 
@@ -190,28 +279,34 @@ Redis 只保存临时状态，长期业务数据最终落 PostgreSQL。
 | Celery 结果 | `celery-task-meta-*` | Celery 管理 |
 | 游客 Session | `session:{id}` | 7 天并刷新 |
 | Refresh Token | `refresh_token:{user_id}` | 7 天 |
-| Token 黑名单 | `jwt:blacklist:{jti}` | access token 剩余寿命 |
+| Access Token 黑名单 | `bl_access:{jti}` | access token 剩余寿命 |
+| 滑块验证码 | `captcha:{token}` | `CAPTCHA_TTL`，验证成功删除 |
 | 任务上下文 | `task:{task_id}:context` | 一次性任务 1 小时，周期任务 30 天 |
 | 子任务状态 | `task:{task_id}:subtasks` | 同任务上下文 |
 | 原始结果 | `task:{task_id}:results_raw` | 同任务上下文 |
 | 精炼结果 | `task:{task_id}:results_refined` | 同任务上下文 |
 | 工作日志 | `task:{task_id}:working_log` | 同任务上下文 |
+| Retriever 会话上下文 | `session:{user_id}:{session_id}:context` | 30 分钟 |
+| Retriever 语义记忆 | `user:{user_id}:semantic` | 30 分钟 |
+| Retriever 工作日志 | `session:{user_id}:{session_id}:retriever_worklog` | 30 分钟 |
+| LLM 响应缓存 | `llm:cache:{model}:{prompt_hash}` | 7 天 |
 
 ### 验收标准
 
 - 一次性任务完成后 Redis 工作区会过期。
 - 周期性任务保留更长状态窗口。
 - Redis key 不保存不可恢复的唯一业务数据。
+- Redis 详细规范以 `redis.md` 为准。
 
 ## 6. 向量索引
 
 ### 背景
 
-数据量增长后，向量全表扫描会影响检索性能。
+向量检索是系统核心能力，不能依赖全表扫描作为长期方案。
 
 ### 决策
 
-pgvector 使用 HNSW 索引作为增长后的优化手段。
+所有涉及向量检索的索引统一使用 HNSW。不得使用未声明的向量索引类型，也不得把 HNSW 作为“后续可选项”长期搁置。
 
 ### 实现要点
 
@@ -225,6 +320,5 @@ ON zr_semantic_memories USING hnsw (embedding vector_cosine_ops);
 
 ### 验收标准
 
-- 小数据量可以不启用 HNSW。
-- 大数据量启用后检索延迟下降。
+- 所有 `vector` 字段对应的检索索引都使用 HNSW。
 - 索引字段与 embedding 维度一致。
