@@ -5,7 +5,7 @@ from core.database import get_db
 from core.redis_client import get_redis
 from api.v1.auth import get_current_user, require_member
 from db.models import User
-from agents.retriever import retrieve, answer
+from agents.retriever import run_retriever_agent
 from redis.asyncio import Redis
 from services.retriever_memory import preload_retriever_context, record_retriever_turn
 
@@ -26,8 +26,15 @@ async def query_knowledge(
     redis: Redis = Depends(get_redis),
 ):
     memory_context = await preload_retriever_context(db, redis, user_id=current_user.id, session_id=body.session_id)
-    chunks = await retrieve(body.query, db, user_id=current_user.id, top_k=body.top_k * 4)
-    response = await answer(body.query, chunks, memory_context=memory_context)
+    result = await run_retriever_agent(
+        body.query,
+        db,
+        user_id=current_user.id,
+        top_k=body.top_k,
+        memory_context=memory_context,
+    )
+    chunks = result["chunks"]
+    response = result["answer"]
     await record_retriever_turn(
         db,
         redis,

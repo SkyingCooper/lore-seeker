@@ -1,5 +1,6 @@
 """规划 Agent：任务拆解 + 质检评分 + 个性化记忆。"""
-from core.llm_router import get_llm
+from pydantic import BaseModel, Field
+
 from core.prompt_loader import get_prompt, render_prompt
 from agents.graph import AgentState
 from agents.contracts import validate_planner_to_searcher_task, validate_quality_result
@@ -11,15 +12,35 @@ from agents.guardrails import (
     after_run,
     before_model_request,
     before_run,
+    build_guarded_pydantic_agent,
     on_error,
 )
-from langchain_core.messages import HumanMessage, SystemMessage
-from agents.token_usage import merge_stage_usage, usage_from_response
+from agents.pydantic_runtime import build_agent_model, usage_from_pydantic_result
+from agents.token_usage import merge_stage_usage
 from core.config import settings
 
 
-async def planner_node(state: AgentState) -> dict:
-    import json
+class PlannerPlanOutput(BaseModel):
+    search_queries: list[str] = Field(default_factory=list)
+    focus_areas: list[str] = Field(default_factory=list)
+    expected_chapters: list[str] = Field(default_factory=list)
+    intent_summary: str = ""
+    needs_query_optimization: bool = False
+    needs_decomposition: bool = False
+    planner_notes: str | None = None
+
+
+class PlannerQualityOutput(BaseModel):
+    score: int = 60
+    feedback: str = "解析失败，建议重试"
+    pass_: bool = Field(default=False, alias="pass")
+
+
+PLANNER_PLAN_AGENT = build_guarded_pydantic_agent("planner", instructions="Generate a structured search plan.")
+PLANNER_QUALITY_AGENT = build_guarded_pydantic_agent("planner", instructions="Evaluate organizer output quality.")
+
+
+async def run_planner_agent(state: AgentState) -> dict:
 
     operation = "decompose_task"
     before_run(
@@ -33,7 +54,6 @@ async def planner_node(state: AgentState) -> dict:
         )
     )
     try:
-        llm = get_llm(temperature=0.2)
         system_prompt = get_prompt("planner.plan.system")
         user_content = render_prompt(
             "planner.plan.user",
@@ -48,21 +68,22 @@ async def planner_node(state: AgentState) -> dict:
                 prompt_chars=len(system_prompt) + len(user_content),
             )
         )
-        messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=user_content),
-        ]
-        resp = await llm.ainvoke(messages)
+        resp = await PLANNER_PLAN_AGENT.run(
+            user_content,
+            output_type=PlannerPlanOutput,
+            model=build_agent_model("planner"),
+            instructions=system_prompt,
+            metadata={"agent": "planner", "operation": operation},
+        )
         token_usage = merge_stage_usage(
             state.get("token_usage"),
             stage="planner",
-            usage=usage_from_response(resp),
+            usage=usage_from_pydantic_result(resp),
             model=settings.PLANNER_MODEL,
         )
-        try:
-            plan = json.loads(resp.content)
-        except Exception:
-            plan = {"search_queries": [state["query"]], "focus_areas": [], "expected_chapters": []}
+        plan = resp.output.model_dump(by_alias=True)
+        if not plan.get("search_queries"):
+            plan["search_queries"] = [state["query"]]
 
         validate_planner_to_searcher_task(state, plan)
         result = {
@@ -86,8 +107,7 @@ async def planner_node(state: AgentState) -> dict:
         raise
 
 
-async def quality_check_node(state: AgentState) -> dict:
-    import json
+async def run_quality_check_agent(state: AgentState) -> dict:
 
     operation = "evaluate_organizer_result"
     before_run(
@@ -101,7 +121,6 @@ async def quality_check_node(state: AgentState) -> dict:
         )
     )
     try:
-        llm = get_llm(temperature=0.1)
         content = state["organized_md"][:8000]  # 截断避免超 token
         system_prompt = get_prompt("planner.quality_check.system")
         user_content = render_prompt("planner.quality_check.user", organized_md=content)
@@ -113,21 +132,20 @@ async def quality_check_node(state: AgentState) -> dict:
                 prompt_chars=len(system_prompt) + len(user_content),
             )
         )
-        messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=user_content),
-        ]
-        resp = await llm.ainvoke(messages)
+        resp = await PLANNER_QUALITY_AGENT.run(
+            user_content,
+            output_type=PlannerQualityOutput,
+            model=build_agent_model("planner"),
+            instructions=system_prompt,
+            metadata={"agent": "planner", "operation": operation},
+        )
         token_usage = merge_stage_usage(
             state.get("token_usage"),
             stage="planner",
-            usage=usage_from_response(resp),
+            usage=usage_from_pydantic_result(resp),
             model=settings.PLANNER_MODEL,
         )
-        try:
-            result = json.loads(resp.content)
-        except Exception:
-            result = {"score": 60, "feedback": "解析失败，建议重试", "pass": False}
+        result = resp.output.model_dump(by_alias=True)
 
         output = {
             "quality_score": result.get("score", 0),
@@ -151,6 +169,14 @@ async def quality_check_node(state: AgentState) -> dict:
             )
         )
         raise
+
+
+async def planner_node(state: AgentState) -> dict:
+    return await run_planner_agent(state)
+
+
+async def quality_check_node(state: AgentState) -> dict:
+    return await run_quality_check_agent(state)
 
 
 def should_retry(state: AgentState) -> str:

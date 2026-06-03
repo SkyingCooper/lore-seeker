@@ -156,5 +156,5 @@ frontend
 
 ## 5. 当前状态
 
-1. Agent 记忆表已有模型，Redis 工作区归档、显式用户偏好写入、Skill 使用反馈、高分任务 Skill 写入、LLM 隐式偏好抽取、语义记忆和情景日志写入已接入任务收尾流程。
+1. Agent 记忆表已有模型，任务收尾已通过独立 `memory_manager` 子 Agent 接入 Redis 工作区归档、显式用户偏好写入、Skill 使用反馈、高分任务 Skill 写入、LLM 隐式偏好抽取、语义记忆和情景日志写入流程。
 2. `/api/v1/search/start` 与 `/api/v1/tasks` 的职责边界已确认后续单独收敛。

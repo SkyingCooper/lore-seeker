@@ -21,7 +21,7 @@ from constraint.validation.validator import (
 )
 
 
-AgentName = Literal["planner", "searcher", "organizer", "retriever"]
+AgentName = Literal["planner", "searcher", "organizer", "retriever", "memory_manager"]
 GuardrailStage = Literal[
     "before_run",
     "after_run",

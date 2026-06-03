@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from passlib.context import CryptContext
 from jose import JWTError
 from redis.asyncio import Redis
+import bcrypt as _bcrypt
 
 from core.config import settings
 from core.database import get_db
@@ -20,6 +21,13 @@ from api.v1.captcha import verify_captcha
 from db.models import User
 
 router = APIRouter()
+# passlib 1.7.x 会读取 bcrypt.__about__.__version__；bcrypt 4.x 已移除
+# __about__，这里补一个只读兼容对象，避免启动后首次 hash 时输出噪声日志。
+if not hasattr(_bcrypt, "__about__"):
+    class _BcryptAbout:
+        __version__ = getattr(_bcrypt, "__version__", "unknown")
+
+    _bcrypt.__about__ = _BcryptAbout()
 pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 

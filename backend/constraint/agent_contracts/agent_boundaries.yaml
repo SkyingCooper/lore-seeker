@@ -109,9 +109,7 @@ agents:
         - "initialize_redis_workspace"
         - "evaluate_search_result"
         - "evaluate_organizer_result"
-        - "write_user_preference"
-        - "write_skill_memory"
-        - "archive_working_session"
+        - "create_memory_manager_handoff"
         - "create_next_periodic_task"
       denied_operations:
         - "execute_search_api"
@@ -138,9 +136,6 @@ agents:
       allowed_db_tables:
         - "search_tasks"
         - "topics"
-        - "zr_user_preferences"
-        - "zr_skill_memories"
-        - "zr_working_sessions"
       denied_data:
         - "other_users_data"
         - ".env"
@@ -154,6 +149,7 @@ agents:
         - "task_planning"
         - "subtask_generation"
         - "handoff_to_searcher"
+        - "handoff_to_memory_manager"
         - "search_result_evaluation"
         - "organizer_quality_check"
         - "task_state_progression"
@@ -164,6 +160,7 @@ agents:
         markdown_report_generation: "organizer"
         embedding_generation: "organizer"
         rag_answer_generation: "retriever"
+        memory_persistence: "memory_manager"
       violation_response: "这不是 Planner 的职责，请交给 {owner_hint}。"
       cross_boundary_handoff:
         route: "orchestrator"
@@ -172,13 +169,10 @@ agents:
     permission:
       level: "write_agent_memory"
       required_permission:
-        write_user_preference: "write_agent_memory"
-        write_skill_memory: "write_agent_memory"
-        archive_working_session: "write_agent_memory"
+        create_memory_manager_handoff: "write_task_state"
         create_next_periodic_task: "write_task_state"
       requires_confirmation_for:
         - "create_next_periodic_task"
-        - "write_implicit_user_preference"
       denied_permission_levels:
         - "admin_or_destructive"
 
@@ -202,7 +196,146 @@ agents:
         - "contract_validation"
         - "responsibility_violations"
         - "permission_escalations"
+        - "memory_handoffs"
+      warn_on:
+        - "undeclared_operation"
+        - "undeclared_tool"
+        - "responsibility_violation"
+      critical_alert_on:
+        - "denied_operation"
+        - "denied_tool"
+        - "permission_violation"
+        - "cross_user_data_attempt"
+
+  memory_manager:
+    name: "memory_manager"
+    version: "1.0.0"
+    description: "任务收尾子 Agent，负责记忆持久化、工作区归档、token 结算和定时淘汰。"
+
+    capabilities:
+      allowed_tools:
+        - "llm"
+        - "redis"
+        - "postgres"
+        - "embedding"
+      denied_tools:
+        - "search_api"
+        - "crawler"
+        - "web_search"
+        - "academic_search"
+        - "github_search"
+        - "stackoverflow_search"
+        - "news_search"
+        - "http_crawler"
+        - "dynamic_crawler"
+        - "anti_ban"
+        - "mcp_gateway"
+        - "reranker"
+      allowed_operations:
+        - "process_memory_handoff"
+        - "extract_implicit_memories"
+        - "write_user_preference"
+        - "write_skill_memory"
+        - "write_skill_usage_feedback"
+        - "write_semantic_memory"
+        - "write_episodic_log"
+        - "archive_working_session"
+        - "record_token_consumption"
+        - "evict_agent_memories"
+      denied_operations:
+        - "execute_search_api"
+        - "crawl_web_page"
+        - "generate_final_report"
+        - "write_knowledge_chunks"
+        - "answer_user_rag_query"
+        - "delete_database_rows"
+        - "access_other_user_data"
+        - "read_secret_values"
+
+    data_boundary:
+      allowed_state:
+        - "task"
+        - "memory_handoff"
+        - "topic_config"
+        - "quality_score"
+        - "token_usage"
+        - "succeeded"
+      allowed_redis_keys:
+        - "task:{task_id}:context"
+        - "task:{task_id}:working_log"
+      allowed_db_tables:
+        - "search_tasks"
+        - "zr_user_preferences"
+        - "zr_skill_memories"
+        - "zr_semantic_memories"
+        - "zr_episodic_logs"
+        - "zr_working_sessions"
+        - "user_token_balance"
+        - "token_consumption_log"
+        - "log_guardrail"
+      allowed_config_paths:
+        - "config/celery.yaml"
+      denied_data:
+        - "other_users_data"
+        - ".env"
+        - "api_keys"
+        - "password_hashes"
+        - "raw_access_tokens"
+
+    responsibilities:
+      responsible_for:
+        - "memory_persistence"
+        - "task_token_settlement"
+        - "working_session_archival"
+        - "memory_eviction"
+      not_responsible:
+        search_execution: "searcher"
+        task_planning: "planner"
+        markdown_report_generation: "organizer"
+        rag_answer_generation: "retriever"
+      violation_response: "这不是 Memory Manager 的职责，请交给 {owner_hint}。"
+      cross_boundary_handoff:
+        route: "orchestrator"
+        direct_agent_call_allowed: false
+
+    permission:
+      level: "write_agent_memory"
+      required_permission:
+        process_memory_handoff: "write_task_state"
+        extract_implicit_memories: "write_agent_memory"
+        write_user_preference: "write_agent_memory"
+        write_skill_memory: "write_agent_memory"
+        write_skill_usage_feedback: "write_agent_memory"
+        write_semantic_memory: "write_agent_memory"
+        write_episodic_log: "write_agent_memory"
+        archive_working_session: "write_agent_memory"
+        record_token_consumption: "write_agent_memory"
+        evict_agent_memories: "write_agent_memory"
+      requires_confirmation_for: []
+      denied_permission_levels:
+        - "admin_or_destructive"
+
+    lifecycle:
+      lifespan: "task_scoped"
+      max_idle_seconds: 300
+      max_active_seconds: 900
+      max_lifespan_seconds: 900
+      on_timeout: "save_state_for_resume"
+      on_incomplete: "save_state_for_resume"
+      on_lifecycle_end: "save_state_for_resume"
+      can_delegate_to:
+        - "orchestrator"
+      can_receive_from:
+        - "orchestrator"
+        - "planner"
+      direct_agent_calls_allowed: false
+
+    audit:
+      always_log:
+        - "contract_validation"
         - "memory_writes"
+        - "token_settlement"
+        - "working_session_archive"
       warn_on:
         - "undeclared_operation"
         - "undeclared_tool"

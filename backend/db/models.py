@@ -28,6 +28,34 @@ class User(Base):
     semantic_memories: Mapped[list["SemanticMemory"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
+class UserTokenBalance(Base):
+    __tablename__ = "user_token_balance"
+
+    user_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    balance: Mapped[int] = mapped_column(Integer, default=0)
+    total_consumed: Mapped[int] = mapped_column(Integer, default=0)
+    last_reset_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class TokenConsumptionLog(Base):
+    __tablename__ = "token_consumption_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(100))
+    task_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    stage: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    estimated_before: Mapped[int] = mapped_column(Integer, default=0)
+    actual_consumed: Mapped[int] = mapped_column(Integer, default=0)
+    balance_after: Mapped[int] = mapped_column(Integer, default=0)
+    metadata_: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class Topic(Base):
     __tablename__ = "topics"
 

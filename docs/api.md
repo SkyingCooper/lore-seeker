@@ -75,14 +75,23 @@ API 层负责认证、任务触发、状态查询、报告读取、知识问答�
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
 | GET | `/api/v1/users/me` | 游客+用户 | 当前用户信息 |
+| GET | `/api/v1/users/me/preferences` | 游客+用户 | 当前用户偏好列表 |
 | PATCH | `/api/v1/users/me/preferences` | 注册用户 | 更新用户偏好 |
+| PUT | `/api/v1/users/me/preferences/{key}` | 注册用户 | 显式设置单个偏好 |
+| DELETE | `/api/v1/users/me/preferences/{key}` | 注册用户 | 撤销单个偏好 |
+| DELETE | `/api/v1/users/me/preferences` | 注册用户 | 清空全部偏好 |
+| GET | `/api/v1/users/me/token-balance` | 游客+用户 | 当前 token 余额与累计消耗 |
+| GET | `/api/v1/users/me/token-consumption?limit=20` | 游客+用户 | 最近 token 消耗流水 |
 
 用户偏好写入 `zr_user_preferences`，不再依赖 `users.preferences` JSON 字段。
+token 账户信息来自 `user_token_balance` 与 `token_consumption_log`。
 
 ### 验收标准
 
 - 返回数据能驱动前端账户弹层和设置页。
 - 游客不能写偏好。
+- 用户可以显式查看、覆盖、撤销和清空自己的偏好。
+- token 账户接口只能读取当前用户自身数据。
 
 ## 4. 主题与快速搜索接口
 
@@ -120,6 +129,12 @@ API 层负责认证、任务触发、状态查询、报告读取、知识问答�
 - `crawl`
 - `mixed`
 
+说明：
+
+- `/api/v1/search/start` 只作为首页快速搜索 facade。
+- 真实任务对象仍由 `/api/v1/tasks` 统一承载生命周期管理。
+- 快速搜索内部复用任务创建与启动服务，不再维护独立任务逻辑分支。
+
 ### 验收标准
 
 - 无 `topic_id` 时快速搜索自动创建临时主题。
@@ -143,6 +158,7 @@ API 层负责认证、任务触发、状态查询、报告读取、知识问答�
 | POST | `/api/v1/tasks` | 注册用户 | 创建任务 |
 | GET | `/api/v1/tasks` | 游客+用户 | 任务列表 |
 | GET | `/api/v1/tasks/{task_id}` | 游客+用户 | 任务详情 |
+| POST | `/api/v1/tasks/{task_id}/submit` | 注册用户 | 提交任务；`once` 任务立即启动，周期任务进入调度池 |
 | POST | `/api/v1/tasks/{task_id}/start` | 注册用户 | 立即执行 |
 | POST | `/api/v1/tasks/{task_id}/retry` | 注册用户 | 失败后重试 |
 | DELETE | `/api/v1/tasks/{task_id}` | 注册用户 | 逻辑删除 |
@@ -181,6 +197,8 @@ API 层负责认证、任务触发、状态查询、报告读取、知识问答�
 - 任务只能由所属用户访问。
 - `/start` 传给 worker 的配置使用 `source_sites`。
 - 状态为 `fetching` 或 `organizing` 时不能重复启动。
+- `once` 任务通过 `/submit` 时会直接启动。
+- 周期任务通过 `/submit` 时只进入调度池，等待 Celery Beat 触发。
 
 ## 6. 报告接口
 
@@ -218,6 +236,34 @@ API 层负责认证、任务触发、状态查询、报告读取、知识问答�
 ### 决策
 
 知识问答接口仅允许注册用户访问，并在检索 SQL 层按用户隔离。
+
+### 实现要点
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| POST | `/api/v1/knowledge/query` | 注册用户 | 知识问答，内部调用 `run_retriever_agent()` |
+
+请求体：
+
+```json
+{
+  "query": "如何为 Lore Seeker 创建周期任务？",
+  "top_k": 5,
+  "session_id": "default"
+}
+```
+
+约束：
+
+- `top_k` 范围 `1-20`。
+- 首轮对话前会预加载 Redis 中的会话上下文和语义记忆。
+- 检索和回答统一通过 `run_retriever_agent()` 进入原生可测试入口。
+
+### 验收标准
+
+- 只能命中当前用户自己的知识切片。
+- `sources` 顺序与回答上下文顺序一致。
+- body 违反 contract 时在 middleware 层返回 `422`。
 
 ### 实现要点
 

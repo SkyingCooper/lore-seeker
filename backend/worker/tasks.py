@@ -44,12 +44,12 @@ def dispatch_periodic_searches(self):
 
 async def _run(task_id: str, user_id: str, query: str, topic_config: dict):
     from agents.graph import graph, AgentState
+    from agents.memory_manager import run_memory_manager_agent
     from agents.contracts import validate_worker_to_planner_task
     from core.database import AsyncSessionLocal
     from core.redis_client import get_redis
     from core.task_redis import append_log, cleanup_workspace, init_workspace, update_context
     from db.models import SearchTask
-    from services.memory_manager import run_task_memory_manager
     from services.knowledge_service import store_report
     from services.search_history_service import attach_report, create_search_history
 
@@ -99,7 +99,9 @@ async def _run(task_id: str, user_id: str, query: str, topic_config: dict):
         async with AsyncSessionLocal() as db:
             task = await db.get(SearchTask, int(task_id))
             if task and final_state.get("organized_md"):
-                raw_results = final_state.get("raw_results", [])
+                cleaned_raw_results = final_state.get("cleaned_raw_results") or final_state.get("raw_results", [])
+                discarded_items = final_state.get("discarded_items") or []
+                raw_results = [*cleaned_raw_results, *discarded_items]
                 history = await create_search_history(
                     db,
                     task=task,
@@ -120,8 +122,8 @@ async def _run(task_id: str, user_id: str, query: str, topic_config: dict):
                 )
                 attach_report(history, report.id)
                 await update_context(redis, int(task_id), status="completed", current_agent="planner")
-                await append_log(redis, int(task_id), "worker", "任务完成并已归档工作区", interaction_type="status_update", status="completed")
-                await run_task_memory_manager(db, redis, task=task, final_state=final_state, succeeded=True)
+                await run_memory_manager_agent(db, redis, task=task, final_state=final_state, succeeded=True)
+                await append_log(redis, int(task_id), "worker", "任务完成，记忆归档已执行", interaction_type="status_update", status="completed")
                 await db.commit()
                 await cleanup_workspace(redis, int(task_id))
             elif task:
@@ -137,7 +139,7 @@ async def _run(task_id: str, user_id: str, query: str, topic_config: dict):
                 )
                 await update_context(redis, int(task_id), status="failed", failure_reason="报告内容为空")
                 await append_log(redis, int(task_id), "worker", "任务执行失败：报告内容为空", interaction_type="error", status="failed")
-                await run_task_memory_manager(db, redis, task=task, final_state=None, succeeded=False)
+                await run_memory_manager_agent(db, redis, task=task, final_state=None, succeeded=False)
                 await db.commit()
     except Exception:
         await update_context(redis, int(task_id), status="failed", failure_reason="任务执行异常")
@@ -146,7 +148,7 @@ async def _run(task_id: str, user_id: str, query: str, topic_config: dict):
             task = await db.get(SearchTask, int(task_id))
             if task:
                 task.status = "failed"
-                await run_task_memory_manager(db, redis, task=task, final_state=None, succeeded=False)
+                await run_memory_manager_agent(db, redis, task=task, final_state=None, succeeded=False)
                 await db.commit()
         raise
 
@@ -254,7 +256,7 @@ async def _dispatch_periodic_searches() -> None:
                 "keywords": topic.keywords if topic else [],
                 "description": topic.description if topic else None,
             }
-            run_search_pipeline.delay(str(task.id), str(task.user_id), topic.title if topic else task.query or "untitled", task_config)
+            run_search_pipeline.delay(str(task.id), str(task.user_id), task.query or (topic.title if topic else "untitled"), task_config)
         await db.commit()
 
 

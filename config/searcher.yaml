@@ -1,0 +1,29 @@
+searcher:
+  concurrency:
+    global_max: 10
+
+  retry:
+    max_attempts: 3
+    initial_delay_seconds: 1
+    max_delay_seconds: 8
+    multiplier: 2
+
+  strategy:
+    default_search_tool: "web_search"
+    query_tool_rules:
+      - match_any: ["github", "repo", "repository", "code"]
+        tool: "github_search"
+      - match_any: ["paper", "论文", "专利", "arxiv", "scholar"]
+        tool: "academic_search"
+      - match_any: ["news", "新闻", "today", "latest", "今日", "最新"]
+        tool: "news_search"
+      - match_any: ["stackoverflow", "报错", "error", "exception", "traceback"]
+        tool: "stackoverflow_search"
+
+  quality:
+    low_result_threshold: 3
+    low_relevance_threshold: 0.3
+
+  site_policy:
+    fallback_concurrency_limit: 2
+    fallback_request_delay_ms: 1000

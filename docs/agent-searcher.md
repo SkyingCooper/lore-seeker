@@ -10,6 +10,8 @@ Searcher 可以使用小模型完成搜索策略判断、失败分类和结果�
 
 - `backend/agents/searcher.py`
 - `backend/services/search_service.py`
+- `backend/services/tool_adapter.py`
+- `config/searcher.yaml`
 
 ## 2. 搜索模式
 
@@ -43,10 +45,11 @@ search_mode = config.get("search_mode", "mixed")
 
 执行规则：
 
-- `api` 和 `mixed`：遍历 `queries` 调用 `search_api()`。
+- `api` 和 `mixed`：遍历 `queries`，按规则选择 `web_search / academic_search / github_search / stackoverflow_search / news_search`。
 - `crawl` 和 `mixed`：当 `source_sites` 非空时调用 `crawl_sites()`。
 - API 搜索携带 `source_sites` 作为站点过滤条件。
 - 具体搜索工具和爬虫工具从 `config/tool_mcp.yaml` 读取配置。
+- 查询词到命名搜索 Tool 的映射从 `config/searcher.yaml` 读取。
 - 所有结果按 URL 去重。
 
 ### 验收标准
@@ -88,7 +91,7 @@ Searcher 在正式搜索前执行预处理，优先复用已有结果；无法�
 3.3 为不同网站加载对应搜索或爬取方案。
 3.4 针对容易限流的网站设置并发数和请求间隔。
 3.5 如果站点存在限流与退避规则，从配置文件读取站点策略。
-3.6 如果站点策略缺失或不适用，调用模型生成新的搜索策略建议。
+3.6 如果站点策略缺失或不适用，先回退到默认策略；后续再由模型生成新的搜索策略建议。
 
 4. 执行队列生成
 4.1 将 Planner 的子任务列表转换成可执行队列。
@@ -135,6 +138,7 @@ Searcher 按搜索策略分批执行任务。并发上限为 10，单站点请�
 3.4 可重试错误最多重试 3 次。
 3.5 重试使用指数退避。
 3.6 搜索或爬虫失败时记录失败分类和上下文，不吞掉错误。
+3.7 当前运行时已经实现配置化 `max_attempts / initial_delay / max_delay / multiplier`。
 
 4. 结果标准化
 4.1 所有执行结果统一标准化为 `title`、`url`、`content`。
@@ -145,6 +149,7 @@ Searcher 按搜索策略分批执行任务。并发上限为 10，单站点请�
 - 同一网站不会被高频请求打爆。
 - 子任务状态能在 Redis 中实时追踪。
 - 可重试和不可重试错误分类清晰。
+- 查询词能够自动路由到更合适的命名搜索 Tool。
 
 ## 5. 搜索 API 路由
 

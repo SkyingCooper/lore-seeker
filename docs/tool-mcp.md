@@ -10,6 +10,7 @@ Tool / MCP 层负责把外部能力以受约束、可配置、可审计的方式
 - `backend/constraint/tool_contracts/tool_registry.yaml`
 - `backend/constraint/tool_contracts/schemas/tool_input_schema.json`
 - `backend/constraint/tool_contracts/schemas/tool_output_schema.json`
+- `backend/services/tool_adapter.py`
 
 ## 2. 设计原则
 
@@ -27,13 +28,15 @@ Tool / MCP 层负责把外部能力以受约束、可配置、可审计的方式
 - 运行参数声明在 `config/tool_mcp.yaml`。
 - API key 只允许使用环境变量占位符，例如 `${SERPER_API_KEY}`。
 - Searcher 是搜索和爬虫类 Tool 的唯一 owner Agent。
-- MCP Server 默认不注册具体服务，后续新增时必须先补配置和 contract。
+- MCP Server 通过 `tool_adapter.call_mcp_tool()` 统一进入网关；未注册 server 不允许调用。
+- 运行时支持 `discover_enabled_tools()` 和 `list_registered_mcp_servers()`，用于动态发现和审计。
 
 ### 验收标准
 
 - 新增搜索 provider 不需要改 Agent 代码。
 - 新增 MCP Server 前必须先注册配置和 contract。
 - Tool/MCP 输出进入 Agent 前必须脱敏、校验和记录。
+- 单测环境可通过 `register_mcp_handler()` 注册本地 handler，不依赖真实外部 server。
 
 ## 3. 搜索检索 API
 
@@ -65,6 +68,11 @@ Tool / MCP 层负责把外部能力以受约束、可配置、可审计的方式
 - `max_results`
 - `rate_limit`
 - `backoff`
+
+运行时入口：
+
+- `call_search_api_tool()`：兼容历史 `search_api` 包装。
+- `call_named_search_tool()`：按 `web_search / academic_search / github_search / stackoverflow_search / news_search` 名称走统一 contract。
 
 ### 验收标准
 
@@ -101,6 +109,11 @@ Tool / MCP 层负责把外部能力以受约束、可配置、可审计的方式
 - 内容解析器：`readability / trafilatura / newspaper3k`。
 - `site_policies`：按域名配置并发、延迟、超时、重试和退避。
 
+运行时入口：
+
+- `call_crawler_tool()`：兼容历史 crawler 包装。
+- `call_named_crawler_tool()`：按 `http_crawler / dynamic_crawler / anti_ban` 名称走统一 contract。
+
 ### 验收标准
 
 - 动态页面爬虫默认关闭，按任务需要启用。
@@ -135,6 +148,12 @@ MCP Server 注册项后续至少包含：
 - timeout。
 - sensitive fields。
 - owner Agent。
+
+当前运行时能力：
+
+- `list_registered_mcp_servers()`：读取配置中的 server 注册信息。
+- `call_mcp_tool()`：校验 caller、server、tool 和 contract 后统一调用。
+- `register_mcp_handler()`：为本地测试或嵌入式 MCP 场景注册 handler。
 
 ### 验收标准
 
@@ -185,7 +204,7 @@ Tool 分两层：
 
 ## 7. 建议补充
 
-当前 Searcher 的 `search_api` 和 `crawler` 已通过 `backend/services/tool_adapter.py` 包装，执行 tool.input / tool.output 校验和 Tool 注册表 caller 校验。新增 Tool 必须沿用该 adapter 模式。
+当前 Searcher 的 `search_api`、命名搜索 Tool、crawler 和 MCP gateway 都通过 `backend/services/tool_adapter.py` 包装，执行 tool.input / tool.output 校验和 Tool 注册表 caller 校验。新增 Tool 必须沿用该 adapter 模式。
 
 建议后续补齐以下能力：
 

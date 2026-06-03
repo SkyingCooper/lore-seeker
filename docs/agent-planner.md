@@ -13,6 +13,7 @@ Planner 不直接执行搜索和报告生成，但负责决定任务如何拆解
 
 - `backend/agents/planner.py`
 - `backend/agents/graph.py`
+- `backend/agents/memory_manager.py`
 
 ## 2. 规划阶段
 
@@ -25,6 +26,13 @@ Planner 不直接执行搜索和报告生成，但负责决定任务如何拆解
 Planner 在流水线入口调用一次大模型，将用户的模糊意图转成机器可执行的结构化计划，写入 Agent state 的 `_plan`，并初始化任务工作区。
 
 ### 实现要点
+
+当前实现说明：
+
+- `planner` 已拆出原生可测试入口 `run_planner_agent()`。
+- `quality_check` 已拆出原生可测试入口 `run_quality_check_agent()`。
+- 两个入口内部的模型调用已切换到 PydanticAI `Agent.run()`。
+- LangGraph 当前只保留 orchestration 责任，图节点内部直接调用上述入口函数。
 
 输入：
 
@@ -94,6 +102,7 @@ Prompt 策略：
 - Perception 阶段 temperature 使用 `0.2`。
 - Prompt 强制返回 JSON，避免自然语言包裹。
 - Prompt 明确引用用户偏好，但不允许偏好覆盖任务主题本身。
+- 当前结构化输出模型为 `PlannerPlanOutput`。
 
 ### 验收标准
 
@@ -210,23 +219,25 @@ Planner 模块同时实现 `quality_check` 节点，对 Markdown 报告评分并
 3.8 按内容完整性、结构清晰度、信息准确性、可读性四个维度评分。
 3.9 生成可执行的 `feedback`，指出具体章节和修改方向。
 3.10 计算 `pass`，默认 `score >= 75` 通过。
-3.11 不通过且 `iteration < 3` 时，LangGraph 条件边回到 Organizer。
+3.11 不通过且 `iteration < 3` 时，由 orchestration 层回到 Organizer。
 3.12 不通过但达到最大迭代次数时，接受最后一次报告并结束流程。
 
 4. 任务收尾
 4.1 报告通过后，总结本次任务体现出的用户偏好和执行经验。
 4.2 Planner 判断是否需要写入或更新记忆。
-4.3 如需要写入记忆，Planner 生成记忆管理子 Agent，代理执行 `zr_user_preferences`、`zr_skill_memories` 和 `zr_working_sessions` 的更新。
+4.3 如需要写入记忆或执行任务结算，Planner 生成记忆管理子 Agent，代理执行 `zr_user_preferences`、`zr_skill_memories`、`zr_working_sessions`、`user_token_balance` 和 `token_consumption_log` 的更新。
 4.4 如果任务配置包含周期频率，根据当前任务创建下一次周期性任务。
 4.5 将 `quality_score`、`quality_feedback` 和 `final` 写入 state。
 4.6 更新任务状态为完成。
 4.7 统计此次任务消耗的 token 情况，按 `search`、`sort`、`retrieve`、`planner`、`memory_manager`、`context_manager` 等环节汇总，并写入 `reports.token_usage`。
+4.8 任务结束后由记忆管理子 Agent 读取最终 token 统计，更新用户 token 余额并写入 `token_consumption_log`。
 
 Prompt 策略：
 
 - Evaluation 阶段 temperature 使用 `0.1`。
 - 输出必须是 JSON，字段固定为 `score`、`feedback`、`pass`。
 - 反馈必须是改写建议，不写泛泛评价。
+- 当前结构化输出模型为 `PlannerQualityOutput`。
 
 ### 验收标准
 
@@ -234,7 +245,7 @@ Prompt 策略：
 - 不达标报告触发 Organizer 重试。
 - 超过重试次数后流程能结束，不会无限循环。
 - 任务完成后用户偏好、经验和工作会话可被追踪。
-- 任务完成后 token 消耗按环节写入报告记录。
+- 任务完成后 token 消耗按环节写入报告记录，并有对应的用户余额扣减流水。
 
 ## 5. 个性化记忆
 

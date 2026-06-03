@@ -79,6 +79,24 @@ CREATE TABLE IF NOT EXISTS log_guardrail (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS user_token_balance (
+    user_id VARCHAR(100) PRIMARY KEY,
+    balance INT DEFAULT 0,
+    total_consumed INT DEFAULT 0,
+    last_reset_at TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS token_consumption_log (
+    id BIGSERIAL PRIMARY KEY,
+    user_id VARCHAR(100) NOT NULL,
+    task_id VARCHAR(100),
+    estimated_before INT DEFAULT 0,
+    actual_consumed INT DEFAULT 0,
+    balance_after INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
 CREATE UNIQUE INDEX IF NOT EXISTS uq_zr_user_preferences_user_key
     ON zr_user_preferences(user_id, key);
 CREATE INDEX IF NOT EXISTS idx_zr_working_sessions_user_id
@@ -99,6 +117,10 @@ CREATE INDEX IF NOT EXISTS idx_log_guardrail_task
     ON log_guardrail(task_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_log_guardrail_level
     ON log_guardrail(alert_level, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_token_consumption_log_user_time
+    ON token_consumption_log(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_token_consumption_log_task
+    ON token_consumption_log(task_id);
 
 -- 向量维度统一为 1024。若表中已有 1536 维历史数据，应先清理或重新生成向量后再启用下列语句。
 -- ALTER TABLE knowledge_chunks ALTER COLUMN embedding TYPE vector(1024);
@@ -115,5 +137,7 @@ COMMENT ON COLUMN knowledge_chunks.content_marked IS '与上一版本对比后�
 COMMENT ON COLUMN knowledge_chunks.summary IS '切片摘要，50-150 字，用于检索预览和向量化';
 COMMENT ON COLUMN knowledge_chunks.source_search_ids IS '该切片来源的 search_histories.id 集合';
 COMMENT ON COLUMN zr_skill_memories."desc" IS 'Skill 描述，作为第一阶段加载内容';
+COMMENT ON TABLE user_token_balance IS '用户 token 余额表，记录剩余余额和历史累计消耗';
+COMMENT ON TABLE token_consumption_log IS 'token 扣减流水表，每次任务结束写入一条记录';
 
 COMMIT;

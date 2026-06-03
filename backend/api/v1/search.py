@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
@@ -7,7 +7,7 @@ from typing import List
 from core.database import get_db
 from api.v1.auth import get_current_user, require_member
 from db.models import User, Topic, SearchTask
-from worker.tasks import run_search_pipeline
+from services.task_service import create_task_bundle, start_task_bundle
 
 router = APIRouter()
 
@@ -46,38 +46,23 @@ async def start_search(
     current_user: User = Depends(require_member),
     db: AsyncSession = Depends(get_db),
 ):
-    # 解析 topic：快速搜索自动创建临时主题
-    if body.topic_id:
-        topic = await db.get(Topic, int(body.topic_id))
-        if not topic or topic.user_id != current_user.id:
-            raise HTTPException(404, "Topic not found")
-    else:
-        topic = Topic(user_id=current_user.id, title=body.query, keywords=[body.query])
-        db.add(topic)
-        await db.commit()
-        await db.refresh(topic)
-
-    topic_config = {
-        "search_mode": body.search_mode,
-        "source_sites": body.source_sites,
-        "keywords": topic.keywords,
-        "description": topic.description,
-    }
-
-    task = SearchTask(
+    bundle = await create_task_bundle(
+        db,
         user_id=current_user.id,
-        topic_id=topic.id,
         query=body.query,
+        topic_id=int(body.topic_id) if body.topic_id else None,
+        topic_title=body.query,
+        topic_keywords=[body.query],
+        topic_description=None,
         source_sites=body.source_sites,
         search_mode=body.search_mode,
+        frequency="once",
     )
-    db.add(task)
+    await start_task_bundle(db, bundle=bundle)
     await db.commit()
-    await db.refresh(task)
+    await db.refresh(bundle.task)
 
-    run_search_pipeline.delay(str(task.id), str(current_user.id), body.query, topic_config)
-
-    return {"task_id": str(task.id), "status": "pending"}
+    return {"task_id": str(bundle.task.id), "status": bundle.task.status}
 
 
 @router.get("/tasks/{task_id}")

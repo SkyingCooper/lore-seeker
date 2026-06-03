@@ -69,6 +69,7 @@ async def record_retriever_turn(
         content=user_message,
         importance=_estimate_importance(user_message),
         metadata={"assistant_preview": assistant_message[:500]},
+        caller="retriever",
     )
 
     preference = _extract_preference(user_message)
@@ -80,6 +81,7 @@ async def record_retriever_turn(
             value=preference["value"],
             category="explicit",
             confidence=0.9,
+            caller="retriever",
         )
 
     fact = _extract_semantic_fact(user_message)
@@ -95,6 +97,7 @@ async def record_retriever_turn(
             confidence=0.75,
             source_type="conversation",
             source_id=None,
+            caller="retriever",
         )
         await redis.delete(_semantic_key(user_id))
 

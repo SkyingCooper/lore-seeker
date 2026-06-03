@@ -21,12 +21,15 @@ from core.embedding_router import get_embeddings
 from core.llm_router import get_llm
 from core.prompt_loader import get_prompt, render_prompt
 from constraint.validation.validator import validate_db_contract
+from agents.token_usage import merge_stage_usage, usage_from_response
 from db.models import (
     EpisodicLog,
     GuardrailLog,
     SearchTask,
     SemanticMemory,
     SkillMemory,
+    TokenConsumptionLog,
+    UserTokenBalance,
     UserPreference,
     WorkingSession,
 )
@@ -41,6 +44,7 @@ async def run_task_memory_manager(
     task: SearchTask,
     final_state: dict[str, Any] | None = None,
     succeeded: bool,
+    caller: str = "memory_manager",
 ) -> WorkingSession | None:
     """任务收尾阶段的记忆管理子 Agent 入口。
 
@@ -58,19 +62,91 @@ async def run_task_memory_manager(
             value=value,
             category="explicit",
             confidence=None,
+            caller=caller,
         )
 
     for skill_id in _used_skill_ids(topic_config, state):
-        await update_skill_usage(db, skill_id=skill_id, succeeded=succeeded)
+        await update_skill_usage(db, skill_id=skill_id, succeeded=succeeded, caller=caller)
 
     quality_score = float(state.get("quality_score") or 0)
     if succeeded and quality_score >= _excellent_task_score_threshold():
-        await _write_excellent_task_skill(db, task=task, state=state, quality_score=quality_score)
+        await _write_excellent_task_skill(db, task=task, state=state, quality_score=quality_score, caller=caller)
 
     if succeeded:
-        await _extract_and_store_llm_memories(db, redis, task=task, state=state)
+        await _extract_and_store_llm_memories(db, redis, task=task, state=state, caller=caller)
 
-    return await archive_working_session(db, redis, task=task)
+    await record_token_consumption(db, task=task, state=state, caller=caller)
+
+    return await archive_working_session(db, redis, task=task, caller=caller)
+
+
+async def record_token_consumption(
+    db: AsyncSession,
+    *,
+    task: SearchTask,
+    state: dict[str, Any],
+    caller: str = "memory_manager",
+) -> TokenConsumptionLog:
+    """任务结束后扣减用户 token 余额并写入按 stage 拆分的消耗流水。"""
+
+    user_id = str(task.user_id)
+    task_id = str(task.id)
+    estimated_before = _estimated_token_total(state)
+    token_usage = state.get("token_usage") or {}
+    actual_consumed = _actual_token_total(token_usage)
+
+    balance = await db.get(UserTokenBalance, user_id)
+    if not balance:
+        balance = UserTokenBalance(
+            user_id=user_id,
+            balance=0,
+            total_consumed=0,
+            last_reset_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(balance)
+
+    balance_after = max(int(balance.balance or 0) - actual_consumed, 0)
+    validate_db_contract(
+        "record_token_consumption",
+        caller=caller,
+        operation="insert_or_update",
+        payload={
+            "user_id": user_id,
+            "task_id": task_id,
+            "estimated_before": estimated_before,
+            "actual_consumed": actual_consumed,
+            "balance_after": balance_after,
+            "stage": "summary",
+        },
+    )
+
+    balance.balance = balance_after
+    balance.total_consumed = int(balance.total_consumed or 0) + actual_consumed
+    balance.updated_at = datetime.utcnow()
+
+    logs = _build_token_logs(
+        user_id=user_id,
+        task_id=task_id,
+        estimated_before=estimated_before,
+        starting_balance=int(balance.balance or 0),
+        token_usage=token_usage,
+    )
+    for log in logs:
+        db.add(log)
+    if not logs:
+        log = TokenConsumptionLog(
+            user_id=user_id,
+            task_id=task_id,
+            stage="summary",
+            estimated_before=estimated_before,
+            actual_consumed=actual_consumed,
+            balance_after=balance_after,
+            metadata_={"token_usage": token_usage},
+        )
+        db.add(log)
+        return log
+    return logs[-1]
 
 
 async def _extract_and_store_llm_memories(
@@ -79,6 +155,7 @@ async def _extract_and_store_llm_memories(
     *,
     task: SearchTask,
     state: dict[str, Any],
+    caller: str,
 ) -> None:
     """调用小模型抽取隐式偏好、语义记忆和情景日志。"""
 
@@ -99,6 +176,12 @@ async def _extract_and_store_llm_memories(
             organized_md=str(state.get("organized_md") or "")[:6000],
         )
         resp = await llm.ainvoke([SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)])
+        state["token_usage"] = merge_stage_usage(
+            state.get("token_usage"),
+            stage="memory_manager",
+            usage=usage_from_response(resp),
+            model=getattr(llm, "model_name", None),
+        )
         extracted = json.loads(resp.content)
     except Exception as exc:
         from core.task_redis import append_log
@@ -126,9 +209,15 @@ async def _extract_and_store_llm_memories(
                 value=item.get("value"),
                 category="implicit",
                 confidence=_clamp_float(item.get("confidence"), default=0.5),
+                caller=caller,
             )
 
-        await _insert_semantic_memories(db, task=task, items=_safe_list(extracted.get("semantic_memories")))
+        await _insert_semantic_memories(
+            db,
+            task=task,
+            items=_safe_list(extracted.get("semantic_memories")),
+            caller=caller,
+        )
         for item in _safe_list(extracted.get("episodic_logs")):
             await insert_episodic_log(
                 db,
@@ -138,6 +227,7 @@ async def _extract_and_store_llm_memories(
                 content=str(item.get("content") or "")[:4000],
                 importance=_clamp_float(item.get("importance"), default=0.5),
                 metadata={"source": "memory_manager.extract"},
+                caller=caller,
             )
     except Exception as exc:
         from core.task_redis import append_log
@@ -158,6 +248,7 @@ async def _insert_semantic_memories(
     *,
     task: SearchTask,
     items: list[dict[str, Any]],
+    caller: str,
 ) -> None:
     valid_items = [
         item
@@ -180,6 +271,7 @@ async def _insert_semantic_memories(
             confidence=_clamp_float(item.get("confidence"), default=0.5),
             source_type="task",
             source_id=task.id,
+            caller=caller,
         )
 
 
@@ -193,12 +285,13 @@ async def insert_episodic_log(
     task_id: int | None = None,
     session_key: str | None = None,
     metadata: dict[str, Any] | None = None,
+    caller: str = "memory_manager",
 ) -> EpisodicLog:
     """写入情景记忆日志。"""
 
     validate_db_contract(
         "insert_episodic_log",
-        caller="planner",
+        caller=caller,
         operation="insert",
         payload={
             "user_id": user_id,
@@ -234,12 +327,13 @@ async def insert_semantic_memory(
     confidence: float,
     source_type: str | None = None,
     source_id: int | None = None,
+    caller: str = "memory_manager",
 ) -> SemanticMemory:
     """写入语义记忆。"""
 
     validate_db_contract(
         "insert_semantic_memory",
-        caller="planner",
+        caller=caller,
         operation="insert",
         payload={
             "user_id": user_id,
@@ -272,6 +366,110 @@ def _iter_declared_preferences(topic_config: dict[str, Any]) -> list[tuple[str, 
     if not isinstance(preferences, dict):
         return []
     return [(str(key), value) for key, value in preferences.items()]
+
+
+def _estimated_token_total(state: dict[str, Any]) -> int:
+    """从任务状态中读取预估 token 消耗，缺失时使用实际消耗兜底。"""
+
+    for key in ("estimated_token_usage", "token_estimate", "estimated_tokens"):
+        value = state.get(key)
+        if isinstance(value, dict):
+            value = value.get("total")
+        number = _safe_int(value)
+        if number > 0:
+            return number
+
+    topic_config = state.get("topic_config") or {}
+    for key in ("estimated_token_usage", "token_estimate", "estimated_tokens"):
+        value = topic_config.get(key)
+        if isinstance(value, dict):
+            value = value.get("total")
+        number = _safe_int(value)
+        if number > 0:
+            return number
+
+    return _actual_token_total(state.get("token_usage"))
+
+
+def _actual_token_total(token_usage: Any) -> int:
+    """读取 reports.token_usage.total；没有 total 时汇总 breakdown。"""
+
+    if not isinstance(token_usage, dict):
+        return 0
+
+    total = _safe_int(token_usage.get("total"))
+    if total > 0:
+        return total
+
+    breakdown = token_usage.get("breakdown")
+    if not isinstance(breakdown, dict):
+        return 0
+    return sum(_safe_int(item.get("total") if isinstance(item, dict) else item) for item in breakdown.values())
+
+
+def _build_token_logs(
+    *,
+    user_id: str,
+    task_id: str,
+    estimated_before: int,
+    starting_balance: int,
+    token_usage: dict[str, Any],
+) -> list[TokenConsumptionLog]:
+    breakdown = token_usage.get("breakdown") if isinstance(token_usage, dict) else None
+    model_used = token_usage.get("model_used") if isinstance(token_usage, dict) else None
+    if not isinstance(breakdown, dict):
+        return []
+
+    logs: list[TokenConsumptionLog] = []
+    remaining_balance = starting_balance
+    for stage, item in breakdown.items():
+        if not isinstance(item, dict):
+            continue
+        stage_total = _safe_int(item.get("total"))
+        if stage_total <= 0:
+            continue
+        remaining_balance = max(remaining_balance - stage_total, 0)
+        model_name = model_used.get(stage) if isinstance(model_used, dict) else None
+        logs.append(
+            TokenConsumptionLog(
+                user_id=user_id,
+                task_id=task_id,
+                stage=str(stage),
+                provider=_provider_from_model(model_name),
+                model=model_name,
+                input_tokens=_safe_int(item.get("input_tokens")),
+                output_tokens=_safe_int(item.get("output_tokens")),
+                estimated_before=estimated_before,
+                actual_consumed=stage_total,
+                balance_after=remaining_balance,
+                metadata_={"timestamp": token_usage.get("timestamp"), "stage_breakdown": item},
+            )
+        )
+    return logs
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return max(int(value or 0), 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _provider_from_model(model_name: Any) -> str | None:
+    if not model_name:
+        return None
+    text = str(model_name).lower()
+    if "qwen" in text or "dashscope" in text:
+        return "aliyun"
+    if "gpt" in text or "openai" in text:
+        return "openai"
+    if "gemini" in text:
+        return "gemini"
+    if "deepseek" in text:
+        return "deepseek"
+    if "rule_based" in text:
+        return "local"
+    return None
 
 
 def _safe_list(value: Any) -> list[dict[str, Any]]:
@@ -307,6 +505,7 @@ async def _write_excellent_task_skill(
     task: SearchTask,
     state: dict[str, Any],
     quality_score: float,
+    caller: str,
 ) -> SkillMemory:
     title = f"高质量任务经验：{(task.query or state.get('query') or f'task:{task.id}')[:80]}"
     existing = await db.scalar(
@@ -322,7 +521,7 @@ async def _write_excellent_task_skill(
     if existing:
         validate_db_contract(
             "upsert_skill_memory",
-            caller="planner",
+            caller=caller,
             operation="insert_or_update",
             payload={
                 "title": title,
@@ -350,6 +549,7 @@ async def _write_excellent_task_skill(
         user_id=task.user_id,
         trigger_patterns=[task.query] if task.query else [],
         confidence=0.8,
+        caller=caller,
     )
 
 
@@ -385,12 +585,13 @@ async def upsert_user_preference(
     value: Any,
     category: str = "implicit",
     confidence: float | None = None,
+    caller: str = "memory_manager",
 ) -> UserPreference:
     """写入或更新用户偏好。"""
 
     validate_db_contract(
         "upsert_user_preference",
-        caller="planner",
+        caller=caller,
         operation="insert_or_update",
         payload={"user_id": user_id, "key": key, "value": value, "category": category},
     )
@@ -429,12 +630,13 @@ async def insert_skill_memory(
     user_id: int | None = None,
     trigger_patterns: list[str] | None = None,
     confidence: float = 0.5,
+    caller: str = "memory_manager",
 ) -> SkillMemory:
     """写入新的 Skill 记忆。"""
 
     validate_db_contract(
         "insert_skill_memory",
-        caller="planner",
+        caller=caller,
         operation="insert",
         payload={
             "title": title,
@@ -467,12 +669,13 @@ async def update_skill_usage(
     *,
     skill_id: int,
     succeeded: bool,
+    caller: str = "memory_manager",
 ) -> SkillMemory | None:
     """更新 Skill 使用反馈。"""
 
     validate_db_contract(
         "update_skill_memory_usage",
-        caller="planner",
+        caller=caller,
         operation="update",
         payload={
             "usage_count": 1,
@@ -503,6 +706,7 @@ async def archive_working_session(
     redis: Redis,
     *,
     task: SearchTask,
+    caller: str = "memory_manager",
 ) -> WorkingSession | None:
     """把 Redis 工作区归档到 zr_working_sessions。"""
 
@@ -518,12 +722,12 @@ async def archive_working_session(
     else:
         steps = logs
 
-    _archive_guardrail_logs(db, task=task, logs=steps)
+    _archive_guardrail_logs(db, task=task, logs=steps, caller=caller)
 
     session_key = f"task:{task.id}:working_log"
     validate_db_contract(
         "archive_working_session",
-        caller="worker",
+        caller=caller,
         operation="insert",
         payload={
             "user_id": task.user_id,
@@ -558,7 +762,13 @@ async def archive_working_session(
     return session
 
 
-def _archive_guardrail_logs(db: AsyncSession, *, task: SearchTask, logs: list[dict[str, Any]]) -> None:
+def _archive_guardrail_logs(
+    db: AsyncSession,
+    *,
+    task: SearchTask,
+    logs: list[dict[str, Any]],
+    caller: str,
+) -> None:
     """把 warning / critical 级护栏决策归档到 log_guardrail。"""
 
     for log in logs:
@@ -579,6 +789,7 @@ def _archive_guardrail_logs(db: AsyncSession, *, task: SearchTask, logs: list[di
                 log=log,
                 decision=decision,
                 alert_level=alert_level,
+                caller=caller,
             )
         )
 
@@ -589,10 +800,11 @@ def _guardrail_log(
     log: dict[str, Any],
     decision: dict[str, Any],
     alert_level: str,
+    caller: str,
 ) -> GuardrailLog:
     validate_db_contract(
         "insert_guardrail_log",
-        caller="worker",
+        caller=caller,
         operation="insert",
         payload={
             "agent_name": log.get("agent") or decision.get("agent_name") or "worker",

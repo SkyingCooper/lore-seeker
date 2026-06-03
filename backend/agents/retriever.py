@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from core.llm_router import get_llm
+from pydantic import BaseModel, Field
 from core.embedding_router import get_embeddings, rerank
 from core.prompt_loader import get_prompt, render_prompt
 from agents.guardrails import (
@@ -18,16 +18,29 @@ from agents.guardrails import (
     before_model_request,
     before_run,
     before_tool_call,
+    build_guarded_pydantic_agent,
     on_error,
     on_tool_error,
 )
-from langchain_core.messages import HumanMessage, SystemMessage
+from agents.pydantic_runtime import build_agent_model, usage_from_pydantic_result
+from agents.token_usage import merge_stage_usage
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from constraint.validation.validator import validate_db_contract
 from services.context_manager import ContextItem, build_context
 
 CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "retriever.yaml"
+
+
+class RetrieverAnswerOutput(BaseModel):
+    answer: str = ""
+    sources_used: list[int] = Field(default_factory=list)
+
+
+RETRIEVER_ANSWER_AGENT = build_guarded_pydantic_agent(
+    "retriever",
+    instructions="Answer only from user-isolated retrieved context and cite source indexes.",
+)
 
 
 async def retrieve(query: str, db: AsyncSession, user_id: int, top_k: int = 20) -> list[dict]:
@@ -197,7 +210,7 @@ async def retrieve(query: str, db: AsyncSession, user_id: int, top_k: int = 20) 
     return result
 
 
-async def answer(query: str, chunks: list[dict], *, memory_context: dict[str, Any] | None = None) -> str:
+async def answer(query: str, chunks: list[dict], *, memory_context: dict[str, Any] | None = None) -> dict[str, Any]:
     """基于检索结果生成回答。"""
     if not chunks:
         return "没有在当前用户知识库中检索到足够相关的内容。请补充问题细节，或先创建相关主题任务生成报告。"
@@ -234,8 +247,8 @@ async def answer(query: str, chunks: list[dict], *, memory_context: dict[str, An
     context = context_pack["context"]
     system_prompt = get_prompt("retriever.answer.system")
     user_prompt = render_prompt("retriever.answer.user", query=query, context=context)
+    model = build_agent_model("retriever")
     try:
-        llm = get_llm(temperature=0.3)
         before_model_request(
             ModelRequestContext(
                 agent_name="retriever",
@@ -244,19 +257,37 @@ async def answer(query: str, chunks: list[dict], *, memory_context: dict[str, An
                 prompt_chars=len(system_prompt) + len(user_prompt),
             )
         )
-        messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=user_prompt),
-        ]
-        resp = await llm.ainvoke(messages)
+        resp = await RETRIEVER_ANSWER_AGENT.run(
+            user_prompt,
+            output_type=RetrieverAnswerOutput,
+            model=model,
+            instructions=system_prompt,
+            metadata={"agent": "retriever", "operation": operation},
+        )
+        token_usage = merge_stage_usage(
+            None,
+            stage="retrieve",
+            usage=usage_from_pydantic_result(resp),
+            model=model.model_name if hasattr(model, "model_name") else None,
+        )
         after_run(
             AgentOutputContext(
                 agent_name="retriever",
                 operation=operation,
-                result={"answer": resp.content},
+                result={
+                    "answer": resp.output.answer,
+                    "sources_used": resp.output.sources_used,
+                    "token_usage": token_usage,
+                    "context_token_estimate": context_pack["token_estimate"],
+                },
             )
         )
-        return resp.content
+        return {
+            "answer": resp.output.answer,
+            "sources_used": resp.output.sources_used,
+            "token_usage": token_usage,
+            "context_token_estimate": context_pack["token_estimate"],
+        }
     except Exception as exc:
         on_error(
             AgentErrorContext(
@@ -271,6 +302,54 @@ async def answer(query: str, chunks: list[dict], *, memory_context: dict[str, An
         raise
 
 
+async def run_retriever_agent(
+    query: str,
+    db: AsyncSession,
+    user_id: int,
+    *,
+    top_k: int = 5,
+    memory_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """原生可测试的 Retriever 入口：检索 + 回答。"""
+    intent = _classify_intent(query)
+    if intent["confidence"] < 0.6:
+        return {
+            "answer": "我还不能确定你的问题具体指向哪一部分。请补充主题、上下文或你想对比的对象。",
+            "chunks": [],
+            "token_usage": merge_stage_usage(
+                None,
+                stage="retrieve",
+                usage={"input_tokens": 0, "output_tokens": 0, "total": 0},
+                model=None,
+            ),
+            "intent": intent,
+        }
+
+    effective_query = _rewrite_query_for_retry(query, memory_context)
+    chunks = await retrieve(effective_query, db, user_id=user_id, top_k=top_k * 4)
+    if not chunks:
+        fallback = _build_no_hit_message(query, memory_context)
+        return {
+            "answer": fallback,
+            "chunks": [],
+            "token_usage": merge_stage_usage(
+                None,
+                stage="retrieve",
+                usage={"input_tokens": 0, "output_tokens": 0, "total": 0},
+                model=None,
+            ),
+            "intent": intent,
+        }
+    answer_result = await answer(effective_query, chunks, memory_context=memory_context)
+    token_usage = merge_stage_usage(
+        answer_result.get("token_usage"),
+        stage="context_manager",
+        usage={"input_tokens": int(answer_result.get("context_token_estimate") or 0), "output_tokens": 0, "total": int(answer_result.get("context_token_estimate") or 0)},
+        model="rule_based_context",
+    )
+    return {"answer": answer_result["answer"], "chunks": chunks, "token_usage": token_usage, "intent": intent}
+
+
 def _retriever_config() -> dict[str, Any]:
     default = {
         "keyword_retrieval": {"top_k": 20},
@@ -283,6 +362,35 @@ def _retriever_config() -> dict[str, Any]:
     with CONFIG_PATH.open("r", encoding="utf-8") as f:
         data = (yaml.safe_load(f) or {}).get("retriever", {})
     return {**default, **data}
+
+
+def _classify_intent(query: str) -> dict[str, Any]:
+    text = query.strip()
+    if len(text) < 4:
+        return {"intent": "unknown", "confidence": 0.3}
+    if any(keyword in text.lower() for keyword in ("怎么", "如何", "why", "how", "什么", "which")):
+        return {"intent": "knowledge_query", "confidence": 0.85}
+    return {"intent": "knowledge_query", "confidence": 0.65}
+
+
+def _rewrite_query_for_retry(query: str, memory_context: dict[str, Any] | None) -> str:
+    if not any(term in query for term in ("不对", "不是这个", "重新回答", "重答")):
+        return query
+    episodic = (memory_context or {}).get("episodic") or []
+    for item in reversed(episodic):
+        user_message = item.get("user_message") or item.get("content")
+        if user_message and user_message != query:
+            return f"{user_message}\n补充要求：用户对上一轮回答不满意，请重新回答并更严格依据知识库证据。"
+    return query
+
+
+def _build_no_hit_message(query: str, memory_context: dict[str, Any] | None) -> str:
+    semantic = (memory_context or {}).get("semantic") or []
+    if semantic:
+        top_titles = "、".join(item.get("title", "") for item in semantic[:3] if item.get("title"))
+        if top_titles:
+            return f"当前知识库里没有检索到足够直接的证据。你可以换一种问法，或围绕这些已知主题继续提问：{top_titles}。"
+    return f"当前知识库里没有检索到与“{query}”足够相关的内容。请缩小范围、补充限定条件，或先创建相关主题任务。"
 
 
 def _row_to_doc(row, *, channel: str, rank: int) -> dict[str, Any]:

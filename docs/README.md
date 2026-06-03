@@ -18,9 +18,10 @@
 | [agent-organizer.md](./agent-organizer.md) | Agent | Markdown 报告、TOC、报告入库 |
 | [agent-retriever.md](./agent-retriever.md) | Agent | 向量召回、用户隔离、重排序、RAG 回答 |
 | [agent-memory-manager.md](./agent-memory-manager.md) | Agent | 记忆写入、Skill 反馈、工作区归档、记忆淘汰 |
-| [agent-boundaries.md](./agent-boundaries.md) | Agent 约束 | 四个 Agent 的能力、数据、职责、权限、生命周期边界 |
+| [agent-boundaries.md](./agent-boundaries.md) | Agent 约束 | 核心 Agent 与 memory_manager 子 Agent 的能力、数据、职责、权限、生命周期边界 |
 | [agent-guardrails.md](./agent-guardrails.md) | Agent 护栏 | Pydantic AI 护栏 hook、校验模型、接入点 |
 | [tool-mcp.md](./tool-mcp.md) | Tool/MCP | 搜索 API、爬虫、反爬、MCP 和工具配置 |
+| [waittodo.md](./waittodo.md) | 问题汇总 | 已确认待实现、已完成收口、需要持续跟踪的问题 |
 | [frontend.md](./frontend.md) | 前端 | 技术栈、路由、主布局、状态、任务页、报告页 |
 | [config.md](./config.md) | 配置 | TOML、`.env`、环境变量优先级、Provider 路由 |
 | [prompts.md](./prompts.md) | Prompt 配置 | Markdown 提示词目录、prompt-id、加载方式 |

@@ -1,4 +1,6 @@
 """整理 Agent：过滤、编排、生成 Markdown 知识体系 + TOC。"""
+from pydantic import BaseModel, Field
+
 from agents.graph import AgentState
 from agents.contracts import validate_organizer_result
 from agents.guardrails import (
@@ -9,16 +11,25 @@ from agents.guardrails import (
     after_run,
     before_model_request,
     before_run,
+    build_guarded_pydantic_agent,
     on_error,
 )
-from core.llm_router import get_llm
+from agents.pydantic_runtime import build_agent_model, usage_from_pydantic_result
 from core.prompt_loader import get_prompt, render_prompt
-from langchain_core.messages import HumanMessage, SystemMessage
-from agents.token_usage import merge_stage_usage, usage_from_response
+from agents.token_usage import merge_stage_usage
 from core.config import settings
+from services.organizer_processing import process_search_results
 
 
-async def organizer_node(state: AgentState) -> dict:
+class OrganizerOutput(BaseModel):
+    content_md: str = ""
+    toc: list[dict] = Field(default_factory=list)
+
+
+ORGANIZER_AGENT = build_guarded_pydantic_agent("organizer", instructions="Generate a structured markdown report.")
+
+
+async def run_organizer_agent(state: AgentState) -> dict:
     operation = "generate_markdown_report"
     before_run(
         AgentRunContext(
@@ -31,12 +42,14 @@ async def organizer_node(state: AgentState) -> dict:
         )
     )
     raw = state.get("raw_results", [])
+    processed = process_search_results(raw)
+    cleaned_results = processed.cleaned_results
     feedback = state.get("quality_feedback", "")
 
     # 截取前 20 条，避免超 token
     snippets = "\n\n".join(
         f"[{i+1}] {r.get('title','')}\n{r.get('url','')}\n{r.get('content','')[:500]}"
-        for i, r in enumerate(raw[:20])
+        for i, r in enumerate(cleaned_results[:20])
     )
 
     feedback_section = f"\n\n质检反馈（请改进）：{feedback}" if feedback else ""
@@ -48,7 +61,6 @@ async def organizer_node(state: AgentState) -> dict:
     )
 
     try:
-        llm = get_llm(temperature=0.4)
         system_prompt = get_prompt("organizer.report.system")
         before_model_request(
             ModelRequestContext(
@@ -58,21 +70,29 @@ async def organizer_node(state: AgentState) -> dict:
                 prompt_chars=len(system_prompt) + len(user_msg),
             )
         )
-        messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=user_msg),
-        ]
-        resp = await llm.ainvoke(messages)
+        resp = await ORGANIZER_AGENT.run(
+            user_msg,
+            output_type=OrganizerOutput,
+            model=build_agent_model("organizer"),
+            instructions=system_prompt,
+            metadata={"agent": "organizer", "operation": operation},
+        )
         token_usage = merge_stage_usage(
             state.get("token_usage"),
             stage="sort",
-            usage=usage_from_response(resp),
+            usage=usage_from_pydantic_result(resp),
             model=settings.ORGANIZER_MODEL,
         )
-        md = resp.content
+        md = resp.output.content_md
 
-        toc = _extract_toc(md)
-        output = {"organized_md": md, "toc": toc, "token_usage": token_usage}
+        toc = resp.output.toc or _extract_toc(md)
+        output = {
+            "organized_md": md,
+            "toc": toc,
+            "token_usage": token_usage,
+            "cleaned_raw_results": cleaned_results,
+            "discarded_items": processed.discarded_items,
+        }
         validate_organizer_result(state, output)
         after_run(AgentOutputContext(agent_name="organizer", operation=operation, result=output))
         return output
@@ -88,6 +108,10 @@ async def organizer_node(state: AgentState) -> dict:
             )
         )
         raise
+
+
+async def organizer_node(state: AgentState) -> dict:
+    return await run_organizer_agent(state)
 
 
 def _extract_toc(md: str) -> list:

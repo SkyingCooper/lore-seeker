@@ -4,6 +4,7 @@
 
 -- Core business chain:
 -- users -> topics -> search_tasks -> reports -> knowledge_chunks
+-- users -> user_token_balance -> token_consumption_log
 
 -- Agent memory tables use the zr_ prefix.
 -- Required tables:
@@ -13,6 +14,8 @@
 --   zr_user_preferences
 --   zr_skill_memories
 --   log_guardrail
+--   user_token_balance
+--   token_consumption_log
 
 -- Required ownership constraints:
 --   topics.user_id -> users.id
@@ -29,6 +32,9 @@
 --   zr_semantic_memories.user_id -> users.id OR NULL for global memory
 --   zr_user_preferences.user_id -> users.id
 --   zr_skill_memories.user_id -> users.id OR NULL for global skill
+--   user_token_balance.user_id is the string form of users.id
+--   token_consumption_log.user_id -> user_token_balance.user_id
+--   token_consumption_log.task_id is the string form of search_tasks.id
 
 -- Vector dimensions:
 --   knowledge_chunks.embedding vector(1024)
@@ -53,3 +59,9 @@
 --   zr_skill_memories.desc is the first-stage description loaded before full SOP.
 --   zr_skill_memories.content is loaded only after a stage-one match.
 --   zr_skill_memories.citation is loaded only when explanation or traceability is needed.
+
+-- Token accounting boundary:
+--   reports.token_usage stores task-level token usage details by stage.
+--   memory manager subagent writes user_token_balance and token_consumption_log after every task ends.
+--   user_token_balance.total_consumed is cumulative actual usage.
+--   token_consumption_log.estimated_before records pre-task estimate, actual_consumed records final measured usage.

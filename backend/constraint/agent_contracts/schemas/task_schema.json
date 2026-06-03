@@ -165,7 +165,7 @@
   "$defs": {
     "agent_name": {
       "type": "string",
-      "enum": ["planner", "searcher", "organizer", "retriever", "worker"]
+      "enum": ["planner", "searcher", "organizer", "retriever", "memory_manager", "worker"]
     },
     "search_mode": {
       "type": "string",

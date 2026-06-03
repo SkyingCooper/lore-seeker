@@ -107,7 +107,7 @@ contracts:
 
   upsert_user_preference:
     operation: "insert_or_update"
-    caller: ["planner", "api"]
+    caller: ["planner", "memory_manager", "retriever", "api"]
     tables: ["zr_user_preferences"]
     required_fields:
       - "user_id"
@@ -115,9 +115,24 @@ contracts:
       - "value"
       - "category"
 
+  list_user_preferences:
+    operation: "select"
+    caller: ["api", "planner", "retriever"]
+    tables: ["zr_user_preferences"]
+    required_filters:
+      - "zr_user_preferences.user_id = :user_id"
+
+  delete_user_preference:
+    operation: "delete"
+    caller: ["api"]
+    tables: ["zr_user_preferences"]
+    required_fields:
+      - "user_id"
+      - "key"
+
   archive_working_session:
     operation: "insert"
-    caller: ["planner", "worker"]
+    caller: ["planner", "memory_manager", "worker"]
     tables: ["zr_working_sessions"]
     required_fields:
       - "user_id"
@@ -125,6 +140,22 @@ contracts:
       - "goal"
       - "steps"
       - "started_at"
+
+  record_token_consumption:
+    operation: "insert_or_update"
+    caller: ["planner", "memory_manager", "worker"]
+    tables: ["user_token_balance", "token_consumption_log"]
+    required_fields:
+      - "user_id"
+      - "task_id"
+      - "estimated_before"
+      - "actual_consumed"
+      - "balance_after"
+    rules:
+      balance_owner: "user_token_balance.user_id = :user_id"
+      log_owner: "token_consumption_log.user_id = :user_id"
+      task_reference: "token_consumption_log.task_id = :task_id"
+      task_end_only: true
 
   query_semantic_memory:
     operation: "select"
@@ -151,7 +182,7 @@ contracts:
 
   insert_episodic_log:
     operation: "insert"
-    caller: ["planner", "retriever", "worker"]
+    caller: ["planner", "memory_manager", "retriever", "worker"]
     tables: ["zr_episodic_logs"]
     required_fields:
       - "user_id"
@@ -165,7 +196,7 @@ contracts:
 
   insert_semantic_memory:
     operation: "insert"
-    caller: ["planner", "retriever", "worker"]
+    caller: ["planner", "memory_manager", "retriever", "worker"]
     tables: ["zr_semantic_memories"]
     required_fields:
       - "user_id"
@@ -180,7 +211,7 @@ contracts:
 
   update_skill_memory_usage:
     operation: "update"
-    caller: ["planner", "worker"]
+    caller: ["planner", "memory_manager", "worker"]
     tables: ["zr_skill_memories"]
     required_fields:
       - "usage_count"
@@ -192,7 +223,7 @@ contracts:
 
   insert_skill_memory:
     operation: "insert"
-    caller: ["planner", "worker"]
+    caller: ["planner", "memory_manager", "worker"]
     tables: ["zr_skill_memories"]
     required_fields:
       - "title"
@@ -208,7 +239,7 @@ contracts:
 
   upsert_skill_memory:
     operation: "insert_or_update"
-    caller: ["planner", "worker"]
+    caller: ["planner", "memory_manager", "worker"]
     tables: ["zr_skill_memories"]
     required_fields:
       - "title"
@@ -239,7 +270,7 @@ contracts:
 
   insert_guardrail_log:
     operation: "insert"
-    caller: ["planner", "searcher", "organizer", "retriever", "worker"]
+    caller: ["planner", "searcher", "organizer", "retriever", "memory_manager", "worker"]
     tables: ["log_guardrail"]
     required_fields:
       - "agent_name"

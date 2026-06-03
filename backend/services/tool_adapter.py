@@ -9,6 +9,7 @@ from __future__ import annotations
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+import os
 from typing import Any, Awaitable, Callable
 
 import yaml
@@ -19,6 +20,8 @@ from services.search_service import crawl_sites, search_api
 
 
 REGISTRY_PATH = Path(__file__).resolve().parents[1] / "constraint" / "tool_contracts" / "tool_registry.yaml"
+RUNTIME_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "tool_mcp.yaml"
+MCP_HANDLERS: dict[tuple[str, str], Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]] = {}
 
 
 def _now() -> str:
@@ -31,6 +34,24 @@ def _registry() -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ContractValidationError("tool.registry", "tool registry root must be an object")
     return data
+
+
+def _runtime_config() -> dict[str, Any]:
+    with RUNTIME_CONFIG_PATH.open("r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    if not isinstance(data, dict):
+        raise ContractValidationError("tool.runtime", "tool runtime config root must be an object")
+    return _resolve_env_placeholders(data)
+
+
+def _resolve_env_placeholders(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: _resolve_env_placeholders(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_resolve_env_placeholders(v) for v in value]
+    if isinstance(value, str) and value.startswith("${") and value.endswith("}"):
+        return os.getenv(value[2:-1], "")
+    return value
 
 
 def _tool_config(tool_name: str) -> dict[str, Any]:
@@ -48,6 +69,67 @@ def _assert_allowed_caller(tool_name: str, caller: str) -> dict[str, Any]:
     if caller not in tool.get("allowed_callers", []):
         raise ContractValidationError("tool.registry", f"{caller} cannot call tool: {tool_name}")
     return tool
+
+
+def discover_enabled_tools(*, owner_agent: str | None = None) -> list[dict[str, Any]]:
+    """返回当前启用的 Tool / MCP 能力清单，供动态发现与审计使用。"""
+
+    runtime = (_runtime_config().get("tool_mcp") or {})
+    tools_registry = runtime.get("tools_registry") or {}
+    items: list[dict[str, Any]] = []
+    for name, item in tools_registry.items():
+        if not isinstance(item, dict) or not item.get("enabled", False):
+            continue
+        if owner_agent and item.get("owner_agent") != owner_agent:
+            continue
+        items.append(
+            {
+                "name": name,
+                "description": item.get("description", ""),
+                "owner_agent": item.get("owner_agent"),
+                "input_kind": item.get("input_kind"),
+            }
+        )
+    if owner_agent:
+        items.append(
+            {
+                "name": "mcp_gateway",
+                "description": "Registered MCP gateway",
+                "owner_agent": owner_agent,
+                "input_kind": "mcp",
+            }
+        )
+    return items
+
+
+def list_registered_mcp_servers() -> list[dict[str, Any]]:
+    runtime = ((_runtime_config().get("tool_mcp") or {}).get("mcp") or {})
+    servers = runtime.get("servers") or []
+    result: list[dict[str, Any]] = []
+    for item in servers:
+        if not isinstance(item, dict) or not item.get("name"):
+            continue
+        result.append(
+            {
+                "name": item["name"],
+                "enabled": bool(item.get("enabled", True)),
+                "transport": item.get("transport"),
+                "timeout_seconds": item.get("timeout_seconds", runtime.get("default_timeout_seconds", 30)),
+                "allowed_tools": item.get("allowed_tools", []),
+            }
+        )
+    return result
+
+
+def register_mcp_handler(
+    *,
+    server: str,
+    tool: str,
+    handler: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]],
+) -> None:
+    """注册本地 MCP handler，便于测试和统一网关调用。"""
+
+    MCP_HANDLERS[(server, tool)] = handler
 
 
 async def call_search_api_tool(
@@ -89,6 +171,54 @@ async def call_search_api_tool(
     )
 
 
+async def call_named_search_tool(
+    *,
+    tool_name: str,
+    caller: str,
+    query: str,
+    source_sites: list[str] | None = None,
+    task_id: str | int | None = None,
+    subtask_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """调用声明式搜索 Tool；当前 provider 层统一复用 search_api 实现。"""
+
+    if tool_name not in {"web_search", "academic_search", "github_search", "stackoverflow_search", "news_search"}:
+        raise ContractValidationError("tool.registry", f"unsupported search tool: {tool_name}")
+
+    tool = _assert_allowed_caller(tool_name, caller)
+    runtime_tools = ((_runtime_config().get("tool_mcp") or {}).get("tools_registry") or {})
+    runtime_item = runtime_tools.get(tool_name) or {}
+    if not runtime_item.get("enabled", False):
+        raise ContractValidationError("tool.runtime", f"disabled tool: {tool_name}")
+
+    provider = _provider_for_search_tool(tool_name)
+    limited_source_sites = (source_sites or [])[:5]
+    envelope = {
+        "schema_version": "1.0",
+        "contract_type": "tool.input",
+        "trace": {"trace_id": f"tool:{tool_name}:{task_id or 'none'}", "task_id": task_id, "subtask_id": subtask_id},
+        "tool_name": tool_name,
+        "caller": caller,
+        "input": {
+            "kind": "search_api",
+            "query": query,
+            "source_sites": limited_source_sites,
+            "provider": provider,
+            "max_results": 10,
+        },
+        "timeout_seconds": int(tool.get("timeout_seconds") or 30),
+        "retry": _retry_config(),
+        "metadata": {"tool_alias": tool_name},
+    }
+    validate_tool_input(envelope)
+    return await _execute_tool(
+        tool_name=tool_name,
+        trace=envelope["trace"],
+        call=lambda: search_api(query, site_filter=limited_source_sites),
+        data_key=_search_output_key(tool_name),
+    )
+
+
 async def call_crawler_tool(
     *,
     caller: str,
@@ -123,6 +253,77 @@ async def call_crawler_tool(
         call=lambda: crawl_sites(urls[:5], queries),
         data_key="pages",
     )
+
+
+async def call_named_crawler_tool(
+    *,
+    tool_name: str,
+    caller: str,
+    urls: list[str],
+    queries: list[str],
+    task_id: str | int | None = None,
+) -> list[dict[str, Any]]:
+    """调用声明式 crawler Tool；动态 crawler/anti_ban 通过配置和 metadata 区分策略。"""
+
+    if tool_name not in {"http_crawler", "dynamic_crawler", "anti_ban"}:
+        raise ContractValidationError("tool.registry", f"unsupported crawler tool: {tool_name}")
+    _assert_allowed_caller(tool_name, caller)
+    runtime_tools = ((_runtime_config().get("tool_mcp") or {}).get("tools_registry") or {})
+    runtime_item = runtime_tools.get(tool_name) or {}
+    if not runtime_item.get("enabled", False):
+        raise ContractValidationError("tool.runtime", f"disabled tool: {tool_name}")
+    return await call_crawler_tool(caller=caller, urls=urls, queries=queries, task_id=task_id)
+
+
+async def call_mcp_tool(
+    *,
+    caller: str,
+    server: str,
+    tool: str,
+    arguments: dict[str, Any],
+    task_id: str | int | None = None,
+    subtask_id: str | None = None,
+) -> dict[str, Any]:
+    """统一 MCP gateway。只允许调用已注册 server/tool。"""
+
+    _assert_allowed_caller("mcp_gateway", caller)
+    server_config = _registered_mcp_server(server)
+    allowed_tools = server_config.get("allowed_tools") or []
+    if allowed_tools and tool not in allowed_tools:
+        raise ContractValidationError("tool.runtime", f"tool {tool} is not allowed for MCP server {server}")
+
+    envelope = {
+        "schema_version": "1.0",
+        "contract_type": "tool.input",
+        "trace": {"trace_id": f"tool:mcp_gateway:{task_id or 'none'}", "task_id": task_id, "subtask_id": subtask_id},
+        "tool_name": "mcp_gateway",
+        "caller": caller,
+        "input": {"kind": "mcp", "server": server, "tool": tool, "arguments": arguments},
+        "timeout_seconds": int(server_config.get("timeout_seconds") or 30),
+        "retry": _retry_config(),
+        "metadata": {},
+    }
+    validate_tool_input(envelope)
+
+    handler = MCP_HANDLERS.get((server, tool))
+    if handler is None:
+        raise ContractValidationError("tool.runtime", f"no local MCP handler registered for {server}:{tool}")
+
+    started = time.perf_counter()
+    result = await handler(arguments)
+    output = {
+        "schema_version": "1.0",
+        "contract_type": "tool.output",
+        "trace": envelope["trace"],
+        "tool_name": "mcp_gateway",
+        "status": "succeeded",
+        "data": {"result": result, "server": server, "tool": tool},
+        "error": None,
+        "metrics": {"duration_ms": _duration_ms(started), "retry_count": 0, "result_count": 1, "token_usage": None},
+        "metadata": {"finished_at": _now()},
+    }
+    validate_tool_output(output)
+    return output["data"]
 
 
 async def _execute_tool(
@@ -182,6 +383,36 @@ def _retry_config() -> dict[str, Any]:
         "max_attempts": int(retry.get("max_attempts") or 3),
         "backoff": retry.get("backoff") or "exponential",
     }
+
+
+def _provider_for_search_tool(tool_name: str) -> str:
+    mapping = {
+        "web_search": "google",
+        "academic_search": "google_scholar",
+        "github_search": "github",
+        "stackoverflow_search": "stackexchange",
+        "news_search": "newsapi",
+    }
+    return mapping[tool_name]
+
+
+def _search_output_key(tool_name: str) -> str:
+    return {
+        "web_search": "results",
+        "academic_search": "papers",
+        "github_search": "items",
+        "stackoverflow_search": "questions",
+        "news_search": "articles",
+    }[tool_name]
+
+
+def _registered_mcp_server(name: str) -> dict[str, Any]:
+    for item in list_registered_mcp_servers():
+        if item["name"] == name:
+            if not item.get("enabled", True):
+                raise ContractValidationError("tool.runtime", f"disabled MCP server: {name}")
+            return item
+    raise ContractValidationError("tool.runtime", f"unregistered MCP server: {name}")
 
 
 def _duration_ms(started: float) -> int:

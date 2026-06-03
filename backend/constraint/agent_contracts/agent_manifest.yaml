@@ -19,6 +19,9 @@ agents:
       - schema: "schemas/task_schema.json"
         contract_type: "agent.task"
         to: ["searcher"]
+      - schema: "schemas/task_schema.json"
+        contract_type: "agent.task"
+        to: ["memory_manager"]
       - schema: "schemas/result_schema.json"
         contract_type: "agent.result"
         to: ["organizer", "worker"]
@@ -44,6 +47,53 @@ agents:
         - "zr_user_preferences"
         - "zr_skill_memories"
         - "zr_working_sessions"
+
+  memory_manager:
+    role: "任务收尾子 Agent，负责偏好、Skill、语义/情景记忆、工作区归档和 token 结算。"
+    accepts:
+      - schema: "schemas/task_schema.json"
+        contract_type: "agent.task"
+        from: ["planner"]
+    emits:
+      - schema: "schemas/result_schema.json"
+        contract_type: "agent.result"
+        to: ["worker", "planner"]
+      - schema: "schemas/error_schema.json"
+        contract_type: "agent.error"
+        to: ["worker", "planner"]
+    tools:
+      - "llm"
+      - "redis"
+      - "postgres"
+      - "embedding"
+    state_reads:
+      - "task"
+      - "memory_handoff"
+      - "topic_config"
+      - "quality_score"
+      - "token_usage"
+    state_writes:
+      - "zr_user_preferences"
+      - "zr_skill_memories"
+      - "zr_semantic_memories"
+      - "zr_episodic_logs"
+      - "zr_working_sessions"
+      - "user_token_balance"
+      - "token_consumption_log"
+      - "log_guardrail"
+    storage:
+      redis:
+        - "task:{task_id}:context"
+        - "task:{task_id}:working_log"
+      db:
+        - "zr_user_preferences"
+        - "zr_skill_memories"
+        - "zr_semantic_memories"
+        - "zr_episodic_logs"
+        - "zr_working_sessions"
+        - "user_token_balance"
+        - "token_consumption_log"
+        - "log_guardrail"
 
   searcher:
     role: "执行型 Agent，负责搜索、爬取、限流、重试、搜索历史和结果初评。"

@@ -1,9 +1,15 @@
 """知识入库服务：Markdown 按 TOC 层级切片 + 向量化 + 存储。"""
+from __future__ import annotations
+
+from datetime import datetime
+
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+
 from db.models import Report, KnowledgeChunk, SearchTask
 from core.embedding_router import get_embeddings
 from constraint.validation.validator import validate_db_contract
-from datetime import datetime
+from services.organizer_processing import build_marked_html
 
 
 async def store_report(
@@ -56,6 +62,7 @@ async def store_report(
     await db.flush()
 
     chunks = _split_hierarchical(content_md, toc)
+    previous_chunks = await _load_previous_chunks(db, task=task)
     if chunks:
         for chunk in chunks:
             chunk["summary"] = _summarize_chunk(chunk["content"])
@@ -63,6 +70,7 @@ async def store_report(
         summaries = [c["summary"] for c in chunks]
         embeddings = await get_embeddings(summaries)
         for i, (chunk, vec) in enumerate(zip(chunks, embeddings)):
+            previous_content = previous_chunks[i].content if i < len(previous_chunks) else None
             db.add(KnowledgeChunk(
                 report_id=report.id,
                 chunk_index=i,
@@ -71,6 +79,7 @@ async def store_report(
                 section_anchor=chunk["section_anchor"],
                 parent_title=chunk.get("parent_title"),
                 content=chunk["content"],
+                content_marked=build_marked_html(chunk["content"], previous_content),
                 summary=chunk["summary"],
                 source_search_ids=source_search_ids or [],
                 embedding=vec,
@@ -178,3 +187,20 @@ def _summarize_chunk(content: str, min_len: int = 50, max_len: int = 150) -> str
 def _slugify(text: str) -> str:
     """简单中文兼容的 anchor 生成。"""
     return text.lower().replace(" ", "-").replace("/", "-")
+
+
+async def _load_previous_chunks(db: AsyncSession, *, task: SearchTask) -> list[KnowledgeChunk]:
+    previous_report = await db.scalar(
+        select(Report)
+        .where(Report.topic_id == task.topic_id, Report.id.is_not(None))
+        .order_by(Report.created_at.desc())
+        .limit(1)
+    )
+    if not previous_report:
+        return []
+    rows = await db.execute(
+        select(KnowledgeChunk)
+        .where(KnowledgeChunk.report_id == previous_report.id)
+        .order_by(KnowledgeChunk.chunk_index.asc())
+    )
+    return list(rows.scalars())

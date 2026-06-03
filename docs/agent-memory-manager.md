@@ -11,6 +11,14 @@
 - `zr_semantic_memories`
 - `zr_episodic_logs`
 - `zr_working_sessions`
+- `user_token_balance`
+- `token_consumption_log`
+
+当前代码入口：
+
+- Agent 入口：`backend/agents/memory_manager.py`
+- 持久化服务：`backend/services/memory_manager.py`
+- Worker 调度点：`backend/worker/tasks.py`
 
 ## 2. 触发方式
 
@@ -26,7 +34,7 @@ Planner 只判断是否需要写入或更新记忆；真正的合并、覆盖、
 
 触发来源：
 
-1. Planner 在任务收尾阶段创建记忆管理子 Agent。
+1. Planner 在任务收尾阶段生成 `planner -> memory_manager` 的 handoff contract。
 2. Celery Beat 每天夜里 `02:00` 触发记忆淘汰任务。
 3. 后续用户主动撤销偏好时，也通过同一子 Agent 执行偏好失效或覆盖。
 
@@ -50,7 +58,7 @@ Planner 只判断是否需要写入或更新记忆；真正的合并、覆盖、
 
 ### 决策
 
-记忆写入按“直接覆盖 / 合并更新 / 分级写入 / 工作归档”四类处理。
+记忆写入按“直接覆盖 / 合并更新 / 分级写入 / 工作归档 / Token 结算”五类处理。
 
 ### 实现要点
 
@@ -94,12 +102,53 @@ Planner 只判断是否需要写入或更新记忆；真正的合并、覆盖、
 
 4.3 warning / critical 级护栏审计不写入 `zr_working_sessions`，单独归档到 `log_guardrail`。
 
+5. Token 结算
+
+5.1 每次任务结束后，子 Agent 读取最终状态中的 `token_usage`。
+
+5.2 `actual_consumed` 优先使用 `token_usage.total`；如果没有总数，则汇总 `token_usage.breakdown.*.total`。
+
+5.3 `estimated_before` 优先读取任务开始前的 `estimated_token_usage`、`token_estimate` 或 `estimated_tokens`，缺失时使用实际消耗兜底。
+
+5.4 子 Agent 更新 `user_token_balance`：
+
+- `balance` 扣减实际消耗，最低为 `0`。
+- `total_consumed` 累加实际消耗。
+- `updated_at` 记录结算时间。
+
+5.5 子 Agent 写入 `token_consumption_log`，按 `planner / search / sort / retrieve / memory_manager / context_manager` 等阶段拆分记录 `user_id`、`task_id`、`stage`、`provider`、`model`、输入输出 token、预估消耗、实际消耗和扣减后余额。
+
 当前实现：
 
-- `backend/services/memory_manager.py` 提供 `archive_working_session()`，可把 `task:{task_id}:working_log` 归档到 `zr_working_sessions`。
-- `archive_working_session()` 会扫描工作日志中的 `guardrail_decision`，把 warning / critical 级记录写入 `log_guardrail`。
-- `run_task_memory_manager()` 已在任务收尾阶段执行显式偏好、Skill 使用反馈、高分任务 Skill 写入、LLM 隐式偏好抽取、语义记忆写入和情景日志写入。
-- `upsert_user_preference()`、`insert_skill_memory()`、`update_skill_usage()`、`insert_semantic_memory()`、`insert_episodic_log()` 作为基础写入服务存在。
+1. `backend/agents/memory_manager.py` 已作为独立子 Agent 存在。
+
+2. `build_memory_manager_handoff()` 负责生成标准 `agent.task`：
+
+   - `routing.from_agent = planner`
+   - `routing.to_agent = memory_manager`
+   - `routing.next_action = archive`
+
+3. `run_memory_manager_agent()` 负责：
+
+   - 校验 handoff contract
+   - 执行 `before_run / after_run / on_error` guardrail
+   - 写入 Redis 工作日志
+   - 调用底层持久化服务
+   - 返回标准 `agent.result`
+
+4. `backend/services/memory_manager.py` 现在只承担内部持久化职责：
+
+   - `run_task_memory_manager()`：统一任务收尾写入入口
+   - `archive_working_session()`：把 `task:{task_id}:working_log` 归档到 `zr_working_sessions`
+   - `archive_working_session()` 会扫描工作日志中的 `guardrail_decision`，把 warning / critical 级记录写入 `log_guardrail`
+   - `upsert_user_preference()`、`insert_skill_memory()`、`update_skill_usage()`、`insert_semantic_memory()`、`insert_episodic_log()`：基础写入服务
+   - `record_token_consumption()`：任务结束后的 token 余额扣减和流水写入服务
+
+5. Worker 现在不再直接把业务逻辑塞进 service，而是：
+
+   - 先完成主任务执行
+   - 再调用 `run_memory_manager_agent()`
+   - 最后提交事务与清理 Redis 工作区
 
 ### 验收标准
 
@@ -107,6 +156,7 @@ Planner 只判断是否需要写入或更新记忆；真正的合并、覆盖、
 - Skill 经验不会重复堆积为多个 active 版本。
 - Skill 使用反馈能反映成功、失败和最近使用时间。
 - Redis 工作区到 `zr_working_sessions` 的归档可用于排查完整任务链路。
+- 每个任务结束后都有 `token_consumption_log` 阶段流水，且用户累计消耗可从 `user_token_balance.total_consumed` 查询。
 
 ## 4. 记忆淘汰
 
@@ -204,5 +254,10 @@ AND created_at < NOW() - INTERVAL '30 days'
 
 ## 6. 当前状态与后续优化
 
-1. 任务收尾已通过 `run_task_memory_manager()` 接入记忆管理入口。
-2. 后续优化重点是提升 LLM 记忆抽取质量、增加人工撤销偏好入口、以及补齐 Retriever 对话结束后的同类沉淀流程。
+1. 任务收尾已经通过 `memory_manager` 独立子 Agent 接入。
+2. `memory_manager` 已纳入 Agent contract、Agent boundary、guardrail 和单元测试范围。
+3. 后续优化重点是：
+
+   - 提升 LLM 记忆抽取质量
+   - 补齐用户主动撤销/管理偏好的完整 API
+   - 补齐 Retriever 对话结束后的同类沉淀流程

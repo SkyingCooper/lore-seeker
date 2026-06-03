@@ -7,9 +7,10 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.database import get_db
 from api.v1.auth import get_current_user, require_member
+from core.database import get_db
 from db.models import Topic, SearchTask, User
+from services.task_service import create_task_bundle, start_existing_task
 
 router = APIRouter()
 
@@ -17,6 +18,7 @@ router = APIRouter()
 # ─── Schemas ──────────────────────────────────────────────────────────────
 
 class TaskCreate(BaseModel):
+    query: str | None = None
     topic_id: int | None = None
     topic_title: str | None = None
     topic_keywords: list[str] = []
@@ -41,46 +43,30 @@ async def create_task(
     current_user: User = Depends(require_member),
     db: AsyncSession = Depends(get_db),
 ):
-    # 解析主题：优先用已有 topic_id，否则自动创建
-    topic_id = body.topic_id
-    if topic_id is None:
-        if not body.topic_title:
-            raise HTTPException(400, detail={"code": "TOPIC_REQUIRED", "detail": "Must provide topic_id or topic_title"})
-        topic = Topic(
-            user_id=current_user.id,
-            title=body.topic_title,
-            keywords=body.topic_keywords,
-            description=body.topic_description,
-        )
-        db.add(topic)
-        await db.commit()
-        await db.refresh(topic)
-        topic_id = topic.id
-    else:
-        topic = await db.get(Topic, topic_id)
-        if not topic or topic.user_id != current_user.id:
-            raise HTTPException(404, "Topic not found")
-
-    task = SearchTask(
+    bundle = await create_task_bundle(
+        db,
         user_id=current_user.id,
-        topic_id=topic_id,
+        query=body.query,
+        topic_id=body.topic_id,
+        topic_title=body.topic_title,
+        topic_keywords=body.topic_keywords,
+        topic_description=body.topic_description,
         source_sites=body.source_sites,
         search_mode=body.search_mode,
         frequency=body.frequency,
-        status="pending",
     )
-    db.add(task)
     await db.commit()
-    await db.refresh(task)
+    await db.refresh(bundle.task)
 
     return {
-        "id": task.id,
-        "topic_id": task.topic_id,
-        "source_sites": task.source_sites,
-        "search_mode": task.search_mode,
-        "frequency": task.frequency,
-        "status": task.status,
-        "created_at": task.created_at.isoformat() if task.created_at else None,
+        "id": bundle.task.id,
+        "topic_id": bundle.task.topic_id,
+        "query": bundle.task.query,
+        "source_sites": bundle.task.source_sites,
+        "search_mode": bundle.task.search_mode,
+        "frequency": bundle.task.frequency,
+        "status": bundle.task.status,
+        "created_at": bundle.task.created_at.isoformat() if bundle.task.created_at else None,
     }
 
 
@@ -101,6 +87,7 @@ async def list_tasks(
             "id": t.id,
             "topic_id": t.topic_id,
             "topic_title": topic_title,
+            "query": t.query,
             "source_sites": t.source_sites,
             "search_mode": t.search_mode,
             "frequency": t.frequency,
@@ -128,6 +115,7 @@ async def get_task(
     return {
         "id": task.id,
         "topic_id": task.topic_id,
+        "query": task.query,
         "topic": {
             "id": topic.id,
             "title": topic.title,
@@ -157,11 +145,15 @@ async def submit_task(
     if task.status not in ("pending", "failed"):
         raise HTTPException(400, detail={"code": "TASK_STATUS_INVALID", "detail": "Task is already running or completed"})
 
+    if task.frequency == "once":
+        topic = await db.get(Topic, task.topic_id)
+        await start_existing_task(db, task=task, topic=topic)
+        await db.commit()
+        return {"task_id": task.id, "status": task.status, "message": "One-off task submitted and started"}
+
     task.status = "pending"
     await db.commit()
-
-    # 如果是周期性任务，Celery Beat 会在下次调度时自动触发
-    return {"task_id": task.id, "status": task.status, "message": "Task submitted, will execute according to schedule"}
+    return {"task_id": task.id, "status": task.status, "message": "Periodic task submitted and will execute according to schedule"}
 
 
 @router.post("/{task_id}/start")
@@ -177,19 +169,8 @@ async def start_task(
     if task.status in ("fetching", "organizing"):
         raise HTTPException(400, detail={"code": "TASK_RUNNING", "detail": "Task is already running"})
 
-    # 触发执行
-    from worker.tasks import run_search_pipeline
     topic = await db.get(Topic, task.topic_id)
-
-    task_config = {
-        "search_mode": task.search_mode,
-        "source_sites": task.source_sites,
-        "keywords": topic.keywords if topic else [],
-        "description": topic.description if topic else None,
-    }
-
-    run_search_pipeline.delay(str(task.id), str(current_user.id), topic.title if topic else "untitled", task_config)
-    task.status = "fetching"
+    await start_existing_task(db, task=task, topic=topic)
     await db.commit()
 
     return {"task_id": task.id, "status": "fetching", "message": "Task started"}

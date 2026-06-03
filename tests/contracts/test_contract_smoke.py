@@ -19,6 +19,7 @@ from agents.contracts import (  # noqa: E402
     validate_searcher_result,
     validate_worker_to_planner_task,
 )
+from agents.memory_manager import build_memory_manager_handoff  # noqa: E402
 from constraint.validation.validator import (  # noqa: E402
     validate_db_contract,
     validate_redis_value,
@@ -45,6 +46,23 @@ class ContractSmokeTest(unittest.TestCase):
         validate_searcher_result(
             state,
             [{"title": "Example", "url": "https://example.com", "content": "content"}],
+        )
+        build_memory_manager_handoff(
+            type(
+                "Task",
+                (),
+                {
+                    "id": 2,
+                    "topic_id": 1,
+                    "user_id": 1,
+                    "query": "测试主题",
+                    "source_sites": ["https://example.com"],
+                    "search_mode": "mixed",
+                    "frequency": "once",
+                },
+            )(),
+            {"topic_config": state["topic_config"], "quality_score": 95, "organized_md": "# ok"},
+            succeeded=True,
         )
 
     def test_storage_contracts_accept_runtime_payloads(self) -> None:
@@ -103,10 +121,37 @@ class ContractSmokeTest(unittest.TestCase):
     def test_http_route_contract_rejects_deprecated_target_sites(self) -> None:
         error = _validate_route_body(
             "/api/v1/search/start",
+            "POST",
             b'{"query":"x","target_sites":["example.com"],"search_mode":"mixed"}',
         )
         self.assertIsNotNone(error)
         self.assertEqual(error["code"], "CONTRACT_FIELD_DEPRECATED")
+
+    def test_http_route_contract_accepts_knowledge_query(self) -> None:
+        error = _validate_route_body(
+            "/api/v1/knowledge/query",
+            "POST",
+            b'{"query":"how to use lore seeker","top_k":5,"session_id":"default"}',
+        )
+        self.assertIsNone(error)
+
+    def test_http_route_contract_rejects_invalid_report_evaluation(self) -> None:
+        error = _validate_route_body(
+            "/api/v1/reports/12/evaluate",
+            "POST",
+            b'{"satisfaction":"bad","notes":"x"}',
+        )
+        self.assertIsNotNone(error)
+        self.assertEqual(error["code"], "CONTRACT_INVALID_SATISFACTION")
+
+    def test_http_route_contract_rejects_empty_preferences_patch(self) -> None:
+        error = _validate_route_body(
+            "/api/v1/users/me/preferences",
+            "PATCH",
+            b'{"preferences":{}}',
+        )
+        self.assertIsNotNone(error)
+        self.assertEqual(error["code"], "CONTRACT_INVALID_PREFERENCES")
 
 
 if __name__ == "__main__":

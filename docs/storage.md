@@ -158,6 +158,43 @@ User -> Topic -> SearchTask -> Report -> KnowledgeChunk
 }
 ```
 
+#### user_token_balance
+
+| 字段 | 说明 |
+|---|---|
+| `user_id` | 用户 ID 字符串，兼容注册用户、游客和外部账号 |
+| `balance` | 当前剩余 token 数量 |
+| `total_consumed` | 历史累计实际消耗 token 数量 |
+| `last_reset_at` | 最近一次余额重置时间 |
+| `updated_at` | 最近更新时间 |
+
+#### token_consumption_log
+
+| 字段 | 说明 |
+|---|---|
+| `id` | 自增主键 |
+| `user_id` | 用户 ID 字符串 |
+| `task_id` | 任务 ID 字符串 |
+| `stage` | token 消耗阶段，例如 `planner`、`retrieve`、`sort`、`context_manager` |
+| `provider` | 模型或工具提供商 |
+| `model` | 具体模型名 |
+| `input_tokens` | 该阶段输入 token 数量 |
+| `output_tokens` | 该阶段输出 token 数量 |
+| `estimated_before` | 任务开始前预估消耗 token 数量 |
+| `actual_consumed` | 任务结束后的实际消耗 token 数量 |
+| `balance_after` | 扣减后的 token 余额 |
+| `metadata` | 阶段级扩展信息，例如 timestamp 和原始 breakdown |
+| `created_at` | 扣减记录创建时间 |
+
+Token 统计边界：
+
+- `reports.token_usage` 保存单次任务按环节拆分的实际 token 消耗。
+- `user_token_balance` 保存用户当前 token 余额和历史累计消耗。
+- `token_consumption_log` 保存每次任务结束后的按阶段扣减流水。
+- 任务结束后由 Planner 生成的记忆管理子 Agent 统一读取 `reports.token_usage` 同结构数据，更新余额表并写入流水。
+- 缺失预估值时，`estimated_before` 使用实际消耗兜底。
+- 余额扣减不写成负数，余额不足时 `balance_after = 0`，但 `total_consumed` 仍按实际消耗累计。
+
 #### knowledge_chunks
 
 | 字段 | 说明 |

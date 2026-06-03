@@ -1,6 +1,6 @@
 # Agent 边界约束
 
-本文档说明 Planner、Searcher、Organizer、Retriever 四个 Agent 的能力边界、数据边界、职责边界、权限边界、生命周期边界和审计规则。机器可读版本统一定义在 `backend/constraint/agent_contracts/agent_boundaries.yaml`。
+本文档说明 Planner、Searcher、Organizer、Retriever，以及任务收尾子 Agent `memory_manager` 的能力边界、数据边界、职责边界、权限边界、生命周期边界和审计规则。机器可读版本统一定义在 `backend/constraint/agent_contracts/agent_boundaries.yaml`。
 
 ## 1. 边界铁律
 
@@ -258,6 +258,66 @@ search_tasks.deleted_at IS NULL
 - `session:{user_id}:{session_id}:retriever_worklog`
 
 ### 验收标准
+
+- Retriever 只能访问当前用户隔离后的知识切片与会话级缓存。
+- Retriever 写入长期记忆时，必须通过已声明的 storage contract。
+
+## 6. Memory Manager 边界
+
+### 背景
+
+Memory Manager 是任务收尾阶段的独立子 Agent，负责承接 Planner 的 handoff，把偏好、Skill、语义/情景记忆、工作区归档和 token 结算落库。
+
+### 决策
+
+Memory Manager 可以写记忆表、工作区表和 token 账本，但不能执行搜索、写报告、写知识切片或回答用户问题。
+
+### 实现要点
+
+允许能力：
+
+- `process_memory_handoff`
+- `extract_implicit_memories`
+- `write_user_preference`
+- `write_skill_memory`
+- `write_skill_usage_feedback`
+- `write_semantic_memory`
+- `write_episodic_log`
+- `archive_working_session`
+- `record_token_consumption`
+- `evict_agent_memories`
+
+禁止能力：
+
+- `execute_search_api`
+- `crawl_web_page`
+- `generate_final_report`
+- `write_knowledge_chunks`
+- `answer_user_rag_query`
+- `delete_database_rows`
+- `access_other_user_data`
+
+允许 Redis key：
+
+- `task:{task_id}:context`
+- `task:{task_id}:working_log`
+
+允许 DB 表：
+
+- `zr_user_preferences`
+- `zr_skill_memories`
+- `zr_semantic_memories`
+- `zr_episodic_logs`
+- `zr_working_sessions`
+- `user_token_balance`
+- `token_consumption_log`
+- `log_guardrail`
+
+### 验收标准
+
+- Planner 只生成 handoff，不直接执行记忆持久化。
+- Worker 只调度 `memory_manager`，不再直接执行业务写库细节。
+- Memory Manager 的 DB/Redis 访问必须全部在 boundary 声明范围内。
 
 - Retriever 不能检索未经过用户隔离的 `knowledge_chunks`。
 - Retriever 不能直接写任何长期业务数据。

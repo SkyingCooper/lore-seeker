@@ -22,9 +22,18 @@ class ContractValidationMiddleware:
 
         method = scope.get("method")
         path = scope.get("path")
-        if method == "POST" and path in {"/api/v1/tasks", "/api/v1/search/start"}:
+        if method in {"POST", "PATCH", "PUT"} and (
+            path in {
+                "/api/v1/tasks",
+                "/api/v1/search/start",
+                "/api/v1/knowledge/query",
+                "/api/v1/users/me/preferences",
+            }
+            or path.startswith("/api/v1/reports/")
+            or path.startswith("/api/v1/users/me/preferences/")
+        ):
             body = await _read_body(receive)
-            error = _validate_route_body(path, body)
+            error = _validate_route_body(path, method, body)
             if error:
                 response = JSONResponse(status_code=422, content={"detail": error})
                 await response(scope, _replay_body(body), send)
@@ -69,7 +78,7 @@ def _send_with_contract_header(send):  # type: ignore[no-untyped-def]
     return wrapped_send
 
 
-def _validate_route_body(path: str, body: bytes) -> dict | None:
+def _validate_route_body(path: str, method: str, body: bytes) -> dict | None:
     try:
         payload = json.loads(body.decode("utf-8") or "{}")
     except json.JSONDecodeError:
@@ -77,17 +86,40 @@ def _validate_route_body(path: str, body: bytes) -> dict | None:
     if not isinstance(payload, dict):
         return {"code": "CONTRACT_INVALID_BODY", "detail": "Request body must be a JSON object"}
 
-    if "target_sites" in payload:
-        return {"code": "CONTRACT_FIELD_DEPRECATED", "detail": "Use source_sites instead of target_sites"}
-    if payload.get("search_mode", "mixed") not in {"api", "crawl", "mixed"}:
-        return {"code": "CONTRACT_INVALID_SEARCH_MODE", "detail": "search_mode must be api, crawl or mixed"}
-    if not isinstance(payload.get("source_sites", []), list):
-        return {"code": "CONTRACT_INVALID_SOURCE_SITES", "detail": "source_sites must be a list"}
-    if len(payload.get("source_sites", [])) > 5:
-        return {"code": "CONTRACT_TOO_MANY_SOURCE_SITES", "detail": "source_sites supports at most 5 entries"}
+    if path in {"/api/v1/tasks", "/api/v1/search/start"}:
+        if "target_sites" in payload:
+            return {"code": "CONTRACT_FIELD_DEPRECATED", "detail": "Use source_sites instead of target_sites"}
+        if payload.get("search_mode", "mixed") not in {"api", "crawl", "mixed"}:
+            return {"code": "CONTRACT_INVALID_SEARCH_MODE", "detail": "search_mode must be api, crawl or mixed"}
+        if not isinstance(payload.get("source_sites", []), list):
+            return {"code": "CONTRACT_INVALID_SOURCE_SITES", "detail": "source_sites must be a list"}
+        if len(payload.get("source_sites", [])) > 5:
+            return {"code": "CONTRACT_TOO_MANY_SOURCE_SITES", "detail": "source_sites supports at most 5 entries"}
+        if path == "/api/v1/tasks" and not payload.get("topic_id") and not payload.get("topic_title"):
+            return {"code": "CONTRACT_TOPIC_REQUIRED", "detail": "topic_id or topic_title is required"}
+        if path == "/api/v1/search/start" and not payload.get("query"):
+            return {"code": "CONTRACT_QUERY_REQUIRED", "detail": "query is required"}
 
-    if path == "/api/v1/tasks" and not payload.get("topic_id") and not payload.get("topic_title"):
-        return {"code": "CONTRACT_TOPIC_REQUIRED", "detail": "topic_id or topic_title is required"}
-    if path == "/api/v1/search/start" and not payload.get("query"):
-        return {"code": "CONTRACT_QUERY_REQUIRED", "detail": "query is required"}
+    if path == "/api/v1/knowledge/query":
+        if not payload.get("query") or not isinstance(payload.get("query"), str):
+            return {"code": "CONTRACT_QUERY_REQUIRED", "detail": "query is required"}
+        top_k = payload.get("top_k", 5)
+        if not isinstance(top_k, int) or top_k < 1 or top_k > 20:
+            return {"code": "CONTRACT_INVALID_TOP_K", "detail": "top_k must be an integer between 1 and 20"}
+
+    if path == "/api/v1/users/me/preferences":
+        prefs = payload.get("preferences")
+        if not isinstance(prefs, dict) or not prefs:
+            return {"code": "CONTRACT_INVALID_PREFERENCES", "detail": "preferences must be a non-empty object"}
+
+    if path.startswith("/api/v1/users/me/preferences/") and method == "PUT":
+        if "value" not in payload:
+            return {"code": "CONTRACT_PREFERENCE_VALUE_REQUIRED", "detail": "value is required"}
+
+    if path.startswith("/api/v1/reports/") and path.endswith("/evaluate"):
+        if payload.get("satisfaction") not in {"dissatisfied", "neutral", "satisfied"}:
+            return {
+                "code": "CONTRACT_INVALID_SATISFACTION",
+                "detail": "satisfaction must be dissatisfied, neutral or satisfied",
+            }
     return None

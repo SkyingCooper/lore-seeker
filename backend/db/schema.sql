@@ -55,6 +55,58 @@ CREATE TRIGGER trg_users_updated_at
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- =============================================================================
+-- 用户 Token 余额与消耗记录
+-- =============================================================================
+
+CREATE TABLE user_token_balance (
+    user_id        VARCHAR(100) PRIMARY KEY,
+    balance        INT          NOT NULL DEFAULT 0,
+    total_consumed INT          NOT NULL DEFAULT 0,
+    last_reset_at  TIMESTAMPTZ,
+    updated_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+COMMENT ON TABLE  user_token_balance                IS '用户 token 余额表，记录可用余额和历史总消耗';
+COMMENT ON COLUMN user_token_balance.user_id        IS '用户 ID，使用字符串形式兼容注册用户、游客和外部账号';
+COMMENT ON COLUMN user_token_balance.balance        IS '剩余 token 数量';
+COMMENT ON COLUMN user_token_balance.total_consumed IS '历史累计实际消耗 token 数量';
+COMMENT ON COLUMN user_token_balance.last_reset_at  IS '最近一次余额重置时间';
+COMMENT ON COLUMN user_token_balance.updated_at     IS '余额最近更新时间，由触发器自动维护';
+
+CREATE TRIGGER trg_user_token_balance_updated_at
+    BEFORE UPDATE ON user_token_balance
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TABLE token_consumption_log (
+    id               BIGSERIAL    PRIMARY KEY,
+    user_id          VARCHAR(100) NOT NULL,
+    task_id          VARCHAR(100),
+    stage            VARCHAR(50),
+    provider         VARCHAR(50),
+    model            VARCHAR(100),
+    input_tokens     INT          NOT NULL DEFAULT 0,
+    output_tokens    INT          NOT NULL DEFAULT 0,
+    estimated_before INT          NOT NULL DEFAULT 0,
+    actual_consumed  INT          NOT NULL DEFAULT 0,
+    balance_after    INT          NOT NULL DEFAULT 0,
+    metadata         JSONB        NOT NULL DEFAULT '{}',
+    created_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+COMMENT ON TABLE  token_consumption_log                  IS 'token 扣减记录表，每次任务结束由记忆管理子 Agent 写入一条流水';
+COMMENT ON COLUMN token_consumption_log.id               IS '扣减流水主键，自增';
+COMMENT ON COLUMN token_consumption_log.user_id          IS '用户 ID，关联 user_token_balance.user_id';
+COMMENT ON COLUMN token_consumption_log.task_id          IS '任务 ID，字符串形式兼容异步任务来源';
+COMMENT ON COLUMN token_consumption_log.stage            IS 'token 消耗阶段，例如 planner、retrieve、sort、context_manager';
+COMMENT ON COLUMN token_consumption_log.provider         IS '模型或工具提供商';
+COMMENT ON COLUMN token_consumption_log.model            IS '具体模型名';
+COMMENT ON COLUMN token_consumption_log.input_tokens     IS '该阶段输入 token 数量';
+COMMENT ON COLUMN token_consumption_log.output_tokens    IS '该阶段输出 token 数量';
+COMMENT ON COLUMN token_consumption_log.estimated_before IS '任务开始前预估 token 消耗';
+COMMENT ON COLUMN token_consumption_log.actual_consumed  IS '任务结束后的实际 token 消耗';
+COMMENT ON COLUMN token_consumption_log.balance_after    IS '扣减后的 token 余额';
+COMMENT ON COLUMN token_consumption_log.metadata         IS '阶段级扩展元数据，例如时间戳和原始 breakdown';
+COMMENT ON COLUMN token_consumption_log.created_at       IS '扣减记录创建时间';
+
+-- =============================================================================
 -- 主题表
 -- =============================================================================
 
@@ -463,6 +515,8 @@ CREATE INDEX idx_zr_skill_memories_status      ON zr_skill_memories(status);
 CREATE INDEX idx_log_guardrail_task_time       ON log_guardrail(task_id, created_at DESC);
 CREATE INDEX idx_log_guardrail_level_time      ON log_guardrail(alert_level, created_at DESC);
 CREATE INDEX idx_log_guardrail_agent_hook      ON log_guardrail(agent_name, hook);
+CREATE INDEX idx_token_consumption_log_user_time ON token_consumption_log(user_id, created_at DESC);
+CREATE INDEX idx_token_consumption_log_task      ON token_consumption_log(task_id);
 
 -- 复合索引（覆盖高频排序 + 过滤组合）
 CREATE INDEX idx_topics_user_created            ON topics(user_id, created_at DESC);

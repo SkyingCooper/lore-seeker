@@ -63,7 +63,7 @@ Lore Seeker 是一个多 Agent 知识库系统。用户创建搜索任务后，�
 | Organizer | `agent-organizer.md` | Markdown 报告、TOC、切片入库 |
 | Retriever | `agent-retriever.md` | 向量召回、重排序、RAG 回答 |
 | Memory Manager | `agent-memory-manager.md` | 用户偏好、Skill 经验、工作日志归档和记忆淘汰 |
-| Agent 边界 | `agent-boundaries.md` | 四个 Agent 的能力、数据、职责、权限、生命周期约束 |
+| Agent 边界 | `agent-boundaries.md` | 核心 Agent 与 `memory_manager` 子 Agent 的能力、数据、职责、权限、生命周期约束 |
 | Agent 护栏 | `agent-guardrails.md` | Pydantic AI hook、运行前后校验、Tool/LLM 拦截和审计 |
 | Tool / MCP | `tool-mcp.md` | 搜索 API、爬虫、反爬、MCP Server 和工具配置 |
 | 前端 | `frontend.md` | 工作台布局、路由、状态、组件约定 |
@@ -122,9 +122,12 @@ Lore Seeker 是一个多 Agent 知识库系统。用户创建搜索任务后，�
 
 ## 5. 当前状态
 
-1. Agent 记忆表已经建模；任务收尾会调用记忆管理入口，完成 Redis 工作区归档、显式偏好写入、Skill 使用反馈、高分任务 Skill 写入，以及 LLM 隐式偏好、语义记忆和情景日志抽取。记忆抽取失败会降级为工作日志，不阻断已完成报告。
-2. `/api/v1/search/start` 与 `/api/v1/tasks` 的职责边界后续单独收敛。
-3. Agent、Tool、Redis/DB contract 已建目录和基础 schema；Agent 节点边界、Searcher Tool 调用、任务 Redis 工作区、关键 DB 写入 / 查询已接入校验。HTTP 路由级 `ContractValidationMiddleware` 已覆盖 `/api/v1/tasks` 和 `/api/v1/search/start` 的核心字段漂移校验。
+1. Agent 记忆表已经建模；任务收尾现在通过独立 `memory_manager` 子 Agent 执行 Redis 工作区归档、显式偏好写入、Skill 使用反馈、高分任务 Skill 写入，以及 LLM 隐式偏好、语义记忆和情景日志抽取。记忆抽取失败会降级为工作日志，不阻断已完成报告。
+2. Token 使用量已按任务环节写入 `reports.token_usage`；任务结束后由记忆管理子 Agent 更新 `user_token_balance` 并写入 `token_consumption_log` 扣减流水。
+3. `planner / organizer / retriever.answer` 已切换到 PydanticAI `Agent.run()`；`searcher` 已统一为独立可测试入口，LangGraph 当前只保留 orchestration 责任。
+4. `/api/v1/search/start` 与 `/api/v1/tasks` 的职责边界后续单独收敛。
+5. Agent、Tool、Redis/DB contract 已建目录和基础 schema；Agent 节点边界、Searcher Tool 调用、任务 Redis 工作区、关键 DB 写入 / 查询已接入校验。HTTP 路由级 `ContractValidationMiddleware` 已覆盖 `/api/v1/tasks`、`/api/v1/search/start`、`/api/v1/knowledge/query`、`/api/v1/users/me/preferences*`、`/api/v1/reports/{id}/evaluate` 的核心字段漂移校验。
+6. Tool / MCP 运行时已具备动态发现与统一网关：`discover_enabled_tools()`、`list_registered_mcp_servers()`、`call_named_search_tool()`、`call_named_crawler_tool()`、`call_mcp_tool()` 均已落地。
 
 ## 6. 验收基线
 

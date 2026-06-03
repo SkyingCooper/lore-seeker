@@ -6,7 +6,7 @@
 
 ### 背景
 
-Planner、Searcher、Organizer、Retriever 会调用 LLM、Tool、Redis 和 DB。如果只依赖业务代码自觉检查，容易出现越权调用、参数漂移、敏感数据进入日志、错误无法降级和审计链断裂。
+Planner、Searcher、Organizer、Retriever 和 `memory_manager` 会调用 LLM、Tool、Redis 和 DB。如果只依赖业务代码自觉检查，容易出现越权调用、参数漂移、敏感数据进入日志、错误无法降级和审计链断裂。
 
 ### 决策
 
@@ -53,7 +53,7 @@ Agent 运行链路必须经过统一护栏。护栏使用 Pydantic 模型校验 
 
 ### 实现要点
 
-- `AgentName` 限制为 `planner/searcher/organizer/retriever`。
+- `AgentName` 限制为 `planner/searcher/organizer/retriever/memory_manager`。
 - `GuardrailStage` 限制为 7 个固定 hook 名称。
 - `temperature` 限制在 `0..2`。
 - `prompt_chars` 限制在 `0..32000`。
@@ -102,7 +102,7 @@ Agent 运行链路必须经过统一护栏。护栏使用 Pydantic 模型校验 
 
 ### 决策
 
-当前先在四个 Agent 节点接入统一 hook。
+当前先在核心 Agent 原生入口和 `memory_manager` 子 Agent 接入统一 hook。
 
 ### 实现要点
 
@@ -112,14 +112,21 @@ Agent 运行链路必须经过统一护栏。护栏使用 Pydantic 模型校验 
 | `backend/agents/searcher.py` | `before_run`、`before_tool_call`、`after_tool_call`、`on_tool_error`、`after_run`、`on_error` |
 | `backend/agents/organizer.py` | `before_run`、`before_model_request`、`after_run`、`on_error` |
 | `backend/agents/retriever.py` | `before_run`、`before_tool_call`、`after_tool_call`、`before_model_request`、`on_tool_error`、`after_run`、`on_error` |
+| `backend/agents/memory_manager.py` | `before_run`、`after_run`、`on_error` |
 
 `build_guarded_pydantic_agent()` 用于后续把 LangGraph 节点迁移为 Pydantic AI Agent 时复用同一套 metadata。
 
 ### 验收标准
 
-- 四个 Agent 文件能独立 import，不触发循环导入。
+- 已接入护栏的 Agent 文件能独立 import，不触发循环导入。
 - 后端通过 `python3 -m compileall -q backend`。
 - 护栏函数可在 `.venv` 中直接调用。
+
+当前执行形态：
+
+- `planner / organizer / retriever.answer` 已直接使用 PydanticAI `Agent.run()`。
+- `searcher` 作为工具编排型 Agent，不强制插入模型调用，但已经统一为独立原生入口 `run_searcher_agent()`。
+- LangGraph 目前只保留 orchestration 责任，节点内部调用各自 Agent 原生入口。
 
 ## 5. 审计与迁移
 
@@ -149,5 +156,5 @@ Agent 运行链路必须经过统一护栏。护栏使用 Pydantic 模型校验 
 
 当前剩余工作：
 
-- LangGraph 节点仍在逐步迁移到 Pydantic AI Agent 原生运行方式。
-- 继续补齐 after_run、before_model_request、after_tool_call、on_tool_error 的精细分支测试。
+- 继续补齐 `memory_manager` 的失败分支、审计归档和 token 细分场景测试。
+- 后续如需要彻底移除 LangGraph，可把 orchestration 也迁到 PydanticAI / pydantic_graph，但这不再影响核心 Agent 的原生可测试性。
