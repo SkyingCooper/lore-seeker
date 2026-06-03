@@ -87,8 +87,56 @@ async def _openai_embed(texts: List[str]) -> List[List[float]]:
 
 
 async def _jina_embed(texts: List[str]) -> List[List[float]]:
-    raise NotImplementedError("Jina embedding not yet implemented")
+    import httpx
+
+    headers = {
+        "Authorization": f"Bearer {settings.JINA_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": settings.JINA_EMBEDDING_MODEL,
+        "input": texts,
+        "task": "retrieval.passage",
+        "dimensions": 1024,
+    }
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            f"{settings.JINA_EMBEDDING_BASE_URL.rstrip('/')}/embeddings",
+            json=payload,
+            headers=headers,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    return [item["embedding"] for item in data["data"]]
 
 
 async def _jina_rerank(query: str, documents: List[str]) -> List[dict]:
-    raise NotImplementedError("Jina reranker not yet implemented")
+    import httpx
+
+    headers = {
+        "Authorization": f"Bearer {settings.JINA_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": settings.JINA_RERANKER_MODEL,
+        "query": query,
+        "documents": documents,
+        "top_n": len(documents),
+        "return_documents": True,
+    }
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            f"{settings.JINA_RERANKER_BASE_URL.rstrip('/')}/rerank",
+            json=payload,
+            headers=headers,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    return [
+        {
+            "index": item["index"],
+            "score": item["relevance_score"],
+            "text": item.get("document", {}).get("text", documents[item["index"]]),
+        }
+        for item in data["results"]
+    ]

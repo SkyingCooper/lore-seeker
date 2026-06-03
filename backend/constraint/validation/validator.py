@@ -175,6 +175,74 @@ def validate_redis_value(payload: Any, definition_name: str) -> Any:
     return payload
 
 
+def validate_db_contract(
+    contract_name: str,
+    *,
+    caller: str,
+    operation: str | None = None,
+    params: dict[str, Any] | None = None,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Validate DB access against query_contracts.yaml.
+
+    该函数校验“是否允许这样访问”，不尝试解析 SQL。调用方需要传入所使用的
+    contract 名、caller、操作类型，以及本次查询参数或写入 payload。
+    """
+
+    contract = load_yaml_contract("storage_contracts/db/query_contracts.yaml")
+    contracts = contract.get("contracts", {})
+    if contract_name not in contracts:
+        raise ContractValidationError("storage.db", f"unknown DB query contract: {contract_name}")
+
+    item = contracts[contract_name]
+    if caller not in item.get("caller", []):
+        raise ContractValidationError("storage.db", f"{caller} cannot use DB query contract: {contract_name}")
+
+    expected_operation = item.get("operation")
+    if operation and expected_operation != operation:
+        raise ContractValidationError(
+            "storage.db",
+            f"{contract_name} expects operation {expected_operation}, got {operation}",
+        )
+
+    values = payload or params or {}
+    required_fields = item.get("required_fields")
+    if isinstance(required_fields, list):
+        _require_keys(contract_name, required_fields, values)
+    elif isinstance(required_fields, dict):
+        for group, keys in required_fields.items():
+            group_values = values.get(group)
+            if not isinstance(group_values, dict):
+                raise ContractValidationError("storage.db", f"{contract_name} missing payload group: {group}")
+            _require_keys(contract_name, keys, group_values)
+
+    required_filters = item.get("required_filters") or []
+    for required_filter in required_filters:
+        for param_name in re.findall(r":([A-Za-z_][A-Za-z0-9_]*)", required_filter):
+            if param_name not in values:
+                raise ContractValidationError(
+                    "storage.db",
+                    f"{contract_name} missing required query param: {param_name}",
+                )
+
+    required_ordering = item.get("required_ordering") or []
+    for required_order in required_ordering:
+        for param_name in re.findall(r":([A-Za-z_][A-Za-z0-9_]*)", required_order):
+            if param_name not in values:
+                raise ContractValidationError(
+                    "storage.db",
+                    f"{contract_name} missing required ordering param: {param_name}",
+                )
+
+    return item
+
+
+def _require_keys(contract_name: str, required_fields: list[str], values: dict[str, Any]) -> None:
+    for field in required_fields:
+        if field not in values:
+            raise ContractValidationError("storage.db", f"{contract_name} missing required field: {field}")
+
+
 def _agent_boundary(agent_name: str) -> dict[str, Any]:
     """Return the declared boundary for a known Agent."""
 

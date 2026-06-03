@@ -244,7 +244,7 @@ Prompt 策略：
 
 ### 决策
 
-Planner 读取 `User.preferences` 作为计划约束。任务完成后的偏好基础写入服务已存在，偏好自动提取和冲突判断由记忆管理子 Agent 接入。
+Planner 读取 `zr_user_preferences` 作为计划约束，不再依赖 `users.preferences` JSON 字段。任务完成后的偏好基础写入服务已存在，偏好自动提取和冲突判断由记忆管理子 Agent 接入。
 
 ### 实现要点
 
@@ -286,10 +286,9 @@ Planner 读写的关键 state 字段：
 | `iteration` | 读写 | 当前重试次数 |
 | `final` | 写 | 是否结束流程 |
 
-## 7. 已确认待实现
+## 7. 当前状态
 
-- Planner 在任务收尾阶段生成记忆管理子 Agent。
-- 记忆管理子 Agent 完整实现 `zr_user_preferences` 自动更新。
-- 记忆管理子 Agent 完整实现 `zr_skill_memories` 分级写入和使用反馈更新。
+- 记忆管理子 Agent 已接入任务收尾流程，当前支持显式偏好、Skill 使用反馈、工作区归档、高分任务 Skill 写入、LLM 隐式偏好抽取、语义记忆提炼和情景日志写入。
+- 记忆抽取或写入失败只写入工作日志，不阻断已完成报告。
 
 记忆管理细节见 `agent-memory-manager.md`。

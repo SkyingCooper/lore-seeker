@@ -2,6 +2,7 @@
 from core.llm_router import get_llm
 from core.prompt_loader import get_prompt, render_prompt
 from agents.graph import AgentState
+from agents.contracts import validate_planner_to_searcher_task, validate_quality_result
 from agents.guardrails import (
     AgentErrorContext,
     AgentOutputContext,
@@ -63,6 +64,7 @@ async def planner_node(state: AgentState) -> dict:
         except Exception:
             plan = {"search_queries": [state["query"]], "focus_areas": [], "expected_chapters": []}
 
+        validate_planner_to_searcher_task(state, plan)
         result = {
             "topic_config": {**state["topic_config"], "_plan": plan},
             "token_usage": token_usage,
@@ -134,6 +136,7 @@ async def quality_check_node(state: AgentState) -> dict:
             "token_usage": token_usage,
             "iteration": state.get("iteration", 0) + 1,
         }
+        validate_quality_result(state, output)
         after_run(AgentOutputContext(agent_name="planner", operation=operation, result=output))
         return output
     except Exception:

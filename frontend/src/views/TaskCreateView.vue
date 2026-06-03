@@ -42,9 +42,9 @@
         <div class="space-y-1.5">
           <label class="text-sm font-medium text-neutral-700">{{ copy.searchMode }}</label>
           <n-radio-group v-model:value="searchMode">
+            <n-radio value="mixed">{{ copy.mixed }}</n-radio>
             <n-radio value="api">{{ copy.api }}</n-radio>
             <n-radio value="crawl">{{ copy.crawl }}</n-radio>
-            <n-radio value="mixed">{{ copy.mixed }}</n-radio>
           </n-radio-group>
         </div>
 
@@ -110,7 +110,7 @@ const topicOptions = ref<Array<{ label: string; value: number }>>([])
 const topicTitle = ref('')
 const keywords = ref<string[]>([])
 const description = ref('')
-const searchMode = ref('api')
+const searchMode = ref('mixed')
 const frequency = ref('once')
 const selectedSites = ref<string[]>([])
 const customSites = ref('')

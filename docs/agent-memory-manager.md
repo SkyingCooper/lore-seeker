@@ -98,7 +98,8 @@ Planner 只判断是否需要写入或更新记忆；真正的合并、覆盖、
 
 - `backend/services/memory_manager.py` 提供 `archive_working_session()`，可把 `task:{task_id}:working_log` 归档到 `zr_working_sessions`。
 - `archive_working_session()` 会扫描工作日志中的 `guardrail_decision`，把 warning / critical 级记录写入 `log_guardrail`。
-- `upsert_user_preference()`、`insert_skill_memory()` 和 `update_skill_usage()` 已作为基础写入服务存在，自动判断和提取逻辑仍由后续记忆管理子 Agent 接入。
+- `run_task_memory_manager()` 已在任务收尾阶段执行显式偏好、Skill 使用反馈、高分任务 Skill 写入、LLM 隐式偏好抽取、语义记忆写入和情景日志写入。
+- `upsert_user_preference()`、`insert_skill_memory()`、`update_skill_usage()`、`insert_semantic_memory()`、`insert_episodic_log()` 作为基础写入服务存在。
 
 ### 验收标准
 
@@ -201,7 +202,7 @@ AND created_at < NOW() - INTERVAL '30 days'
 - Skill 未使用归档天数。
 - 优秀任务写入 Skill 的评分阈值。
 
-## 6. 已确认待实现
+## 6. 当前状态与后续优化
 
-1. 完整实现 `zr_user_preferences` 自动更新，由 Planner 生成的记忆管理子 Agent 代理执行。
-2. 完整实现 `zr_skill_memories` 分级写入和使用反馈更新，由记忆管理子 Agent 代理执行。
+1. 任务收尾已通过 `run_task_memory_manager()` 接入记忆管理入口。
+2. 后续优化重点是提升 LLM 记忆抽取质量、增加人工撤销偏好入口、以及补齐 Retriever 对话结束后的同类沉淀流程。

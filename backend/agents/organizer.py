@@ -1,5 +1,6 @@
 """整理 Agent：过滤、编排、生成 Markdown 知识体系 + TOC。"""
 from agents.graph import AgentState
+from agents.contracts import validate_organizer_result
 from agents.guardrails import (
     AgentErrorContext,
     AgentOutputContext,
@@ -72,6 +73,7 @@ async def organizer_node(state: AgentState) -> dict:
 
         toc = _extract_toc(md)
         output = {"organized_md": md, "toc": toc, "token_usage": token_usage}
+        validate_organizer_result(state, output)
         after_run(AgentOutputContext(agent_name="organizer", operation=operation, result=output))
         return output
     except Exception as exc:

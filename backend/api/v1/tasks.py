@@ -22,7 +22,7 @@ class TaskCreate(BaseModel):
     topic_keywords: list[str] = []
     topic_description: str | None = None
     source_sites: list[str] = []
-    search_mode: str = "api"
+    search_mode: str = "mixed"
     frequency: str = "once"
 
 

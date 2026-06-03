@@ -149,6 +149,35 @@ contracts:
     eviction_fields:
       - "importance"
 
+  insert_episodic_log:
+    operation: "insert"
+    caller: ["planner", "retriever", "worker"]
+    tables: ["zr_episodic_logs"]
+    required_fields:
+      - "user_id"
+      - "event_type"
+      - "content"
+      - "importance"
+    optional_fields:
+      - "task_id"
+      - "session_key"
+      - "metadata"
+
+  insert_semantic_memory:
+    operation: "insert"
+    caller: ["planner", "retriever", "worker"]
+    tables: ["zr_semantic_memories"]
+    required_fields:
+      - "user_id"
+      - "title"
+      - "summary"
+      - "content"
+      - "embedding"
+      - "confidence"
+    optional_fields:
+      - "source_type"
+      - "source_id"
+
   update_skill_memory_usage:
     operation: "update"
     caller: ["planner", "worker"]
@@ -163,6 +192,22 @@ contracts:
 
   insert_skill_memory:
     operation: "insert"
+    caller: ["planner", "worker"]
+    tables: ["zr_skill_memories"]
+    required_fields:
+      - "title"
+      - "desc"
+      - "content"
+      - "scope"
+      - "trigger_patterns"
+    optional_fields:
+      - "citation"
+      - "user_id"
+      - "status"
+      - "confidence"
+
+  upsert_skill_memory:
+    operation: "insert_or_update"
     caller: ["planner", "worker"]
     tables: ["zr_skill_memories"]
     required_fields:

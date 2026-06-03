@@ -21,7 +21,7 @@ class TopicCreate(BaseModel):
 class SearchRequest(BaseModel):
     query: str
     topic_id: str | None = None
-    search_mode: str = "api"
+    search_mode: str = "mixed"
     source_sites: List[str] = []
 
 

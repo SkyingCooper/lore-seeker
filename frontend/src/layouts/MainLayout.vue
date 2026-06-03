@@ -10,10 +10,10 @@
       class="bg-[linear-gradient(180deg,#f2eadf_0%,#efe7db_100%)]"
     >
       <div class="flex h-full flex-col">
-        <div v-if="!collapsed" class="mb-1 flex h-[76px] items-center gap-0 pl-0 pr-0">
-          <div class="flex shrink-0 items-center">
-            <img :src="logoMark" alt="Lore Seeker" class="block h-[67px] w-auto max-w-[67px] object-contain" />
-            <img :src="logoWord" alt="Lore Seeker" class="block h-[38px] w-auto -ml-4 translate-y-[5px] object-contain" />
+        <div v-if="!collapsed" class="mb-1 flex h-[64px] items-center gap-0 pl-2 pr-0">
+          <div class="flex shrink-0 items-end">
+            <img :src="logoMark" alt="Lore Seeker" class="block h-[58px] w-auto max-w-[58px] object-contain" />
+            <img :src="logoWord" alt="Lore Seeker" class="block h-[42px] w-auto -ml-1 translate-y-[2px] object-contain" />
           </div>
 
           <div class="ml-auto flex shrink-0 items-center justify-end">
@@ -22,10 +22,10 @@
                 <button
                   class="flex shrink-0 items-center gap-0 rounded-[18px] px-0 py-0 text-left transition"
                 >
-                  <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#d8beb6] text-[20px] font-semibold text-[#4f4338] shadow-[0_6px_18px_rgba(126,112,93,0.16)]">
+                  <div class="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-full bg-[#d6bdb5] text-[21px] font-semibold text-[#4f4338] shadow-[0_8px_22px_rgba(126,112,93,0.18)]">
                     {{ avatarFallback }}
                   </div>
-                  <ChevronDown :size="16" class="-ml-0.5 shrink-0 text-[#8e8172]" />
+                  <ChevronDown :size="15" class="-ml-0.5 shrink-0 text-[#8e8172]" />
                 </button>
               </template>
 

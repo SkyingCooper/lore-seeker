@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from core.config import settings
 from core.database import engine, Base
+from constraint.validation.middleware import ContractValidationMiddleware
 from api.v1 import auth, captcha, tasks, users, search, reports, knowledge
 
 
@@ -27,6 +28,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(ContractValidationMiddleware)
 
 app.include_router(captcha.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])

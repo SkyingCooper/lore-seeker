@@ -120,11 +120,11 @@ Lore Seeker 是一个多 Agent 知识库系统。用户创建搜索任务后，�
 - Redis/DB 交互必须先定义并使用 `backend/constraint/storage_contracts`。
 - 不允许绕过 contract 直接传自由 JSON、直接调用 Tool、直接写 Redis 或直接拼接 DB 查询。
 
-## 5. 当前已确认待实现
+## 5. 当前状态
 
-1. Agent 记忆表已经建模，Redis 工作区已可归档到 `zr_working_sessions`；用户偏好自动提取、Skill 经验分级提炼和 Skill 使用反馈仍由 Planner 生成的记忆管理子 Agent 继续实现。
+1. Agent 记忆表已经建模；任务收尾会调用记忆管理入口，完成 Redis 工作区归档、显式偏好写入、Skill 使用反馈、高分任务 Skill 写入，以及 LLM 隐式偏好、语义记忆和情景日志抽取。记忆抽取失败会降级为工作日志，不阻断已完成报告。
 2. `/api/v1/search/start` 与 `/api/v1/tasks` 的职责边界后续单独收敛。
-3. Agent、Tool、Redis/DB contract 已建目录和基础 schema；任务 Redis 工作区写入已接入校验，Agent handoff、Tool adapter 和 DB query contract 仍需继续接入。
+3. Agent、Tool、Redis/DB contract 已建目录和基础 schema；Agent 节点边界、Searcher Tool 调用、任务 Redis 工作区、关键 DB 写入 / 查询已接入校验。HTTP 路由级 `ContractValidationMiddleware` 已覆盖 `/api/v1/tasks` 和 `/api/v1/search/start` 的核心字段漂移校验。
 
 ## 6. 验收基线
 

@@ -158,7 +158,7 @@ const router = useRouter()
 const message = useMessage()
 
 const query = ref('')
-const searchMode = ref('api')
+const searchMode = ref('mixed')
 const searching = ref(false)
 const taskId = ref<string | null>(null)
 const taskStatus = ref('')
@@ -229,9 +229,9 @@ const viewTabs = computed(() => [
 ])
 
 const searchModeOptions = computed(() => [
+  { label: locale.isChinese ? '混合模式' : 'Hybrid', value: 'mixed' },
   { label: locale.isChinese ? 'API 搜索' : 'API search', value: 'api' },
   { label: locale.isChinese ? '爬虫扫描' : 'Crawler', value: 'crawl' },
-  { label: locale.isChinese ? '混合模式' : 'Hybrid', value: 'mixed' },
 ])
 
 const ownerLabel = computed(() => copy.value.owner)

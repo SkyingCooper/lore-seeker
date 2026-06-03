@@ -154,7 +154,7 @@ frontend
 - Worker 传入 Agent 的 `topic_config` 使用同名字段。
 - 任务列表返回 `topic_title`，前端不依赖 `#id` 作为主要标题。
 
-## 5. 已确认待实现
+## 5. 当前状态
 
-1. Agent 记忆表已有模型，Redis 工作区归档、用户偏好写入和 Skill 使用反馈基础服务已补齐；用户偏好自动提取、Skill 经验自动总结和语义 / 情景记忆写入链路仍需补齐。
+1. Agent 记忆表已有模型，Redis 工作区归档、显式用户偏好写入、Skill 使用反馈、高分任务 Skill 写入、LLM 隐式偏好抽取、语义记忆和情景日志写入已接入任务收尾流程。
 2. `/api/v1/search/start` 与 `/api/v1/tasks` 的职责边界已确认后续单独收敛。

@@ -185,6 +185,8 @@ Tool 分两层：
 
 ## 7. 建议补充
 
+当前 Searcher 的 `search_api` 和 `crawler` 已通过 `backend/services/tool_adapter.py` 包装，执行 tool.input / tool.output 校验和 Tool 注册表 caller 校验。新增 Tool 必须沿用该 adapter 模式。
+
 建议后续补齐以下能力：
 
 1. Tool 级熔断器：连续失败超过阈值后短时间停用该 provider。

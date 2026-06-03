@@ -262,17 +262,21 @@ DB 查询强规则：
 - Redis 工作日志最终归档到 `zr_working_sessions`。
 - prompt 上下文超限时不得绕过 Context Manager 直接调用模型。
 
-## 5. 已确认待实现
-
-1. 将 `validator.py` 接入 Agent handoff，使 Planner/Searcher/Organizer/Retriever 交互自动校验。
-2. 将 Tool 调用统一包一层 contract adapter，禁止直接调用原始函数。
-3. 将 DB 写入和查询路径接入 storage contract 校验。
-4. 将 `ContractValidationMiddleware` 按路由启用请求/响应校验。
+## 5. 当前实现与扩展规则
 
 当前实现：
 
+- `backend/agents/contracts.py` 已把 LangGraph state 转换为 agent.task / agent.result envelope，并在 Worker、Planner、Searcher、Organizer 节点边界校验。
+- `backend/services/tool_adapter.py` 已包裹 Searcher 的 `search_api` 和 `crawler` 调用，执行 tool.input / tool.output 校验和 Tool 注册表 caller 校验。
+- `backend/constraint/validation/validator.py` 已提供 `validate_db_contract()`，并接入报告入库、Retriever 知识检索、记忆管理和护栏审计归档。
+
 - `backend/core/task_redis.py` 已在 `task:{task_id}:context`、`subtasks`、`results_raw`、`results_refined`、`working_log` 写入前调用 `validate_redis_value()`。
 - `task:{task_id}:working_log` 已支持 `GuardrailDecision` 摘要，普通通过记录映射为 `info`，warning / critical 由归档服务写入 `log_guardrail`。
+
+扩展规则：
+
+1. `ContractValidationMiddleware` 已接入 FastAPI，并覆盖 `/api/v1/tasks` 与 `/api/v1/search/start` 的请求字段漂移校验；后续新增业务路由必须同步声明路由级 contract。
+2. 为更多 Tool 和 DB 查询逐步接入同一 adapter，不允许新增直连路径。
 
 ## 6. 已确认决策
 

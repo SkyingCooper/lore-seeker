@@ -8,6 +8,7 @@
 
 - `backend/db/models.py`
 - `backend/db/schema.sql`
+- `backend/db/migrations/20260602_align_memory_contracts.sql`
 - `backend/core/database.py`
 - `backend/core/task_redis.py`
 
@@ -32,6 +33,7 @@
 - 主键统一使用 `BIGSERIAL` / `BigInteger` 自增 ID。
 - 业务删除使用 `deleted_at` 逻辑删除。
 - PostgreSQL 初始化统一使用 `backend/db/schema.sql`。
+- 已有环境从旧记忆表名迁移到 `zr_*` 时，使用 `backend/db/migrations/20260602_align_memory_contracts.sql`。
 - pgvector 维度统一为 `1024`。
 
 ### 验收标准

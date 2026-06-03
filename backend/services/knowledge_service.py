@@ -2,6 +2,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from db.models import Report, KnowledgeChunk, SearchTask
 from core.embedding_router import get_embeddings
+from constraint.validation.validator import validate_db_contract
 from datetime import datetime
 
 
@@ -14,7 +15,30 @@ async def store_report(
     result_count: int = 0,
     quality_score: float | None = None,
     token_usage: dict | None = None,
+    source_search_ids: list[int] | None = None,
 ) -> Report:
+    validate_db_contract(
+        "insert_report_and_chunks",
+        caller="worker",
+        operation="insert",
+        payload={
+            "reports": {
+                "topic_id": task.topic_id,
+                "task_id": task.id,
+                "content_md": content_md,
+                "toc": toc,
+                "token_usage": token_usage or {},
+            },
+            "knowledge_chunks": {
+                "report_id": 0,
+                "chunk_index": 0,
+                "content": content_md,
+                "summary": summary or "",
+                "source_search_ids": source_search_ids or [],
+                "embedding": [],
+            },
+        },
+    )
     report = Report(
         topic_id=task.topic_id,
         task_id=task.id,
@@ -48,11 +72,12 @@ async def store_report(
                 parent_title=chunk.get("parent_title"),
                 content=chunk["content"],
                 summary=chunk["summary"],
+                source_search_ids=source_search_ids or [],
                 embedding=vec,
             ))
 
     task.status = "completed"
-    await db.commit()
+    await db.flush()
     return report
 
 

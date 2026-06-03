@@ -109,7 +109,7 @@ API 层负责认证、任务触发、状态查询、报告读取、知识问答�
 {
   "query": "Python async",
   "topic_id": "可选",
-  "search_mode": "api",
+  "search_mode": "mixed",
   "source_sites": ["https://docs.python.org"]
 }
 ```
@@ -169,7 +169,7 @@ API 层负责认证、任务触发、状态查询、报告读取、知识问答�
   "topic_id": 1,
   "topic_title": "主题名称",
   "source_sites": [],
-  "search_mode": "api",
+  "search_mode": "mixed",
   "frequency": "once",
   "status": "pending"
 }
@@ -293,4 +293,4 @@ API 层负责认证、任务触发、状态查询、报告读取、知识问答�
 
 ## 9. 已确认待调整
 
-- `/api/v1/search/start` 和 `/api/v1/tasks` 的长期职责边界后续单独收敛。
+- `/api/v1/search/start` 和 `/api/v1/tasks` 的长期职责边界后续单独收敛；当前两者都已接入 `ContractValidationMiddleware`，统一校验 `source_sites`、`search_mode` 和必填业务字段。

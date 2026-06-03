@@ -132,17 +132,22 @@ Agent 运行链路必须经过统一护栏。护栏使用 Pydantic 模型校验 
 - `GuardrailDecision` 摘要写入 Redis 工作日志 `task:{task_id}:working_log`。
 - warning / critical 级别审计归档到独立表 `log_guardrail`。
 - LangGraph 节点逐步迁移到 Pydantic AI Agent 原生运行方式。
-- 每个 hook 必须补单元测试。
+- Hook 必须有单元测试覆盖允许、拒绝、严重告警和脱敏路径。
 
 ### 实现要点
 
 - Redis 工作日志只保存脱敏后的护栏摘要。
 - `log_guardrail` 保存长期审计记录，不替代 `zr_working_sessions`。
-- 单元测试覆盖允许、拒绝、严重告警和脱敏路径。
+- `tests/agents/test_guardrails.py` 已覆盖允许、拒绝、严重告警和脱敏路径。
 - 迁移期间，Pydantic AI Agent 和 LangGraph 节点必须复用同一套 contract 与 guardrail hook。
 
 ### 验收标准
 
 - 每次护栏决策可在任务工作日志中追踪。
 - warning / critical 审计可从 `log_guardrail` 按 `task_id`、`agent_name`、`alert_level` 查询。
-- hook 单测覆盖 before_run、after_run、before_model_request、before_tool_call、after_tool_call、on_tool_error、on_error。
+- hook 单测至少覆盖允许、拒绝、严重告警和脱敏路径；新增 hook 分支必须同步补测试。
+
+当前剩余工作：
+
+- LangGraph 节点仍在逐步迁移到 Pydantic AI Agent 原生运行方式。
+- 继续补齐 after_run、before_model_request、after_tool_call、on_tool_error 的精细分支测试。

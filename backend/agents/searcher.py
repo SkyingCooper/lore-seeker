@@ -1,5 +1,6 @@
 """搜索 Agent：API 优先 + 爬虫辅助，支持指定网站扫描。"""
 from agents.graph import AgentState
+from agents.contracts import validate_searcher_result
 from agents.guardrails import (
     AgentErrorContext,
     AgentOutputContext,
@@ -13,7 +14,7 @@ from agents.guardrails import (
     on_error,
     on_tool_error,
 )
-from services.search_service import search_api, crawl_sites
+from services.tool_adapter import call_crawler_tool, call_search_api_tool
 from agents.token_usage import merge_stage_usage
 
 
@@ -53,7 +54,12 @@ async def searcher_node(state: AgentState) -> dict:
                 )
             )
             try:
-                hits = await search_api(q, site_filter=source_sites)
+                hits = await call_search_api_tool(
+                    caller="searcher",
+                    query=q,
+                    source_sites=source_sites,
+                    task_id=state.get("task_id"),
+                )
             except Exception as exc:
                 on_tool_error(
                     AgentErrorContext(
@@ -86,7 +92,12 @@ async def searcher_node(state: AgentState) -> dict:
             )
         )
         try:
-            crawled = await crawl_sites(source_sites, queries)
+            crawled = await call_crawler_tool(
+                caller="searcher",
+                urls=source_sites,
+                queries=queries,
+                task_id=state.get("task_id"),
+            )
         except Exception as exc:
             on_tool_error(
                 AgentErrorContext(
@@ -117,6 +128,7 @@ async def searcher_node(state: AgentState) -> dict:
             seen.add(url)
             deduped.append(r)
 
+    validate_searcher_result(state, deduped)
     output = {"raw_results": deduped, "token_usage": token_usage}
     try:
         after_run(AgentOutputContext(agent_name="searcher", operation="standardize_search_result", result=output))

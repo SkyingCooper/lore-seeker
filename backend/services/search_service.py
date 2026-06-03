@@ -35,9 +35,24 @@ async def crawl_sites(sites: List[str], queries: List[str]) -> List[dict]:
                 html = await page.content()
                 soup = BeautifulSoup(html, "html.parser")
                 text = soup.get_text(separator="\n", strip=True)[:3000]
-                results.append({"title": soup.title.string if soup.title else site, "url": site, "content": text})
-            except Exception:
-                pass
+                results.append({
+                    "title": soup.title.string if soup.title else site,
+                    "url": site,
+                    "content": text,
+                    "source": site,
+                    "kind": "crawler",
+                    "search_mode": "crawl",
+                })
+            except Exception as exc:
+                results.append({
+                    "title": site,
+                    "url": site,
+                    "content": "",
+                    "source": site,
+                    "kind": "crawler",
+                    "search_mode": "crawl",
+                    "error": {"type": type(exc).__name__, "message": str(exc)},
+                })
 
         await browser.close()
     return results
@@ -53,7 +68,14 @@ async def _tavily_search(query: str, site_filter: List[str] | None) -> List[dict
 
     resp = await client.search(**params)
     return [
-        {"title": r.get("title", ""), "url": r.get("url", ""), "content": r.get("content", "")}
+        {
+            "title": r.get("title", ""),
+            "url": r.get("url", ""),
+            "content": r.get("content", ""),
+            "source": _domain_from_url(r.get("url", "")),
+            "kind": "search_api",
+            "search_mode": "api",
+        }
         for r in resp.get("results", [])
     ]
 
@@ -74,7 +96,14 @@ async def _serpapi_search(query: str, site_filter: List[str] | None) -> List[dic
         data = resp.json()
 
     return [
-        {"title": r.get("title", ""), "url": r.get("link", ""), "content": r.get("snippet", "")}
+        {
+            "title": r.get("title", ""),
+            "url": r.get("link", ""),
+            "content": r.get("snippet", ""),
+            "source": _domain_from_url(r.get("link", "")),
+            "kind": "search_api",
+            "search_mode": "api",
+        }
         for r in data.get("organic_results", [])
     ]
 
@@ -97,6 +126,20 @@ async def _bing_search(query: str, site_filter: List[str] | None) -> List[dict]:
         data = resp.json()
 
     return [
-        {"title": r.get("name", ""), "url": r.get("url", ""), "content": r.get("snippet", "")}
+        {
+            "title": r.get("name", ""),
+            "url": r.get("url", ""),
+            "content": r.get("snippet", ""),
+            "source": _domain_from_url(r.get("url", "")),
+            "kind": "search_api",
+            "search_mode": "api",
+        }
         for r in data.get("webPages", {}).get("value", [])
     ]
+
+
+def _domain_from_url(url: str) -> str:
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url or "")
+    return parsed.netloc or url
