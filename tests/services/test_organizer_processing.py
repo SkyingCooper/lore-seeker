@@ -47,6 +47,13 @@ class OrganizerProcessingTest(unittest.TestCase):
         self.assertIn("<del>", marked)
         self.assertTrue('class="added"' in marked or 'class="modified"' in marked)
 
+    def test_build_marked_html_prefers_paragraph_level_diff(self) -> None:
+        old = "第一段内容\n\n第二段原始内容"
+        new = "第一段内容\n\n第二段修改后的内容"
+        marked = build_marked_html(new, old)
+        self.assertIn("<p>", marked)
+        self.assertIn('class="modified"', marked)
+
 
 if __name__ == "__main__":
     unittest.main()

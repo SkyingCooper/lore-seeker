@@ -224,7 +224,7 @@ token 账户信息来自 `user_token_balance` 与 `token_consumption_log`。
 ### 验收标准
 
 - 用户不能读取其他用户报告。
-- 报告详情返回 `content_md`、`toc`、`summary`、评分和状态。
+- 报告详情返回 `content_md`、`toc`、`summary`、`token_usage`、`cost_usage`、评分和状态。
 - 满意度只能由报告所属用户提交。
 
 ## 7. 知识接口
@@ -257,6 +257,7 @@ token 账户信息来自 `user_token_balance` 与 `token_consumption_log`。
 
 - `top_k` 范围 `1-20`。
 - 首轮对话前会预加载 Redis 中的会话上下文和语义记忆。
+- 首轮对话前会预加载 Redis 中的会话上下文、语义记忆和用户偏好。
 - 检索和回答统一通过 `run_retriever_agent()` 进入原生可测试入口。
 
 ### 验收标准

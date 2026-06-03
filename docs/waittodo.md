@@ -94,49 +94,67 @@
 
 ### 2.1 Searcher 高级搜索策略
 
-- 状态：待实现
-- 范围：
-  - 搜索效果差时自动调整策略
-  - 更细粒度的站点级并发执行器与实时 Redis 工作日志
+- 状态：已完成
+- 日期：`2026-06-04`
 
-- 当前进展：
-  - 已补 `config/searcher.yaml`
-  - 已实现查询词到命名搜索 Tool 的自动路由
-  - 已实现配置化指数退避重试
-  - 已实现站点策略优先裁剪入口
+执行情况：
+
+1. Searcher 已实现 `query × site` job 拆分、全局并发和每站点并发控制。
+2. 站点限流、请求间隔和指数退避重试已配置化落地。
+3. Redis `subtasks`、`working_log`、`results_raw` 会实时推进子任务状态。
+4. 结果不足或相关性偏低时，会先触发 `web_search` 补搜。
+5. 补搜后仍存在明显偏科时，会按查询语义触发策略修复：
+   - 代码 / 仓库类问题优先补 `github_search`
+   - 论文 / 专利类问题优先补 `academic_search`
+   - 实时新闻类问题优先补 `news_search`
+6. Searcher 的外部 Tool 调用成本与额度消耗会同步汇总到 `state.cost_usage` 和 `reports.cost_usage`。
 
 ### 2.2 Organizer 高级清洗与版本 diff
 
-- 状态：待实现
-- 范围：
-  - 更强的近似去重算法替换当前 Jaccard 近似
-  - 更细粒度的 section 对 section 版本 diff
+- 状态：已完成
+- 日期：`2026-06-04`
 
-- 当前进展：
-  - 已新增 `backend/services/organizer_processing.py`
-  - 已实现 `readability / trafilatura / boilerpy3` 可选正文抽取与规则回退
-  - 已实现来源可信度配置化评分
-  - 已实现低质量内容 `discard_reason` 分流
-  - 已实现去重入口
-  - 已实现 `content_marked` HTML diff 入库
+执行情况：
+
+1. 已新增 `backend/services/organizer_processing.py`。
+2. 已实现 `readability / trafilatura / boilerpy3` 可选正文抽取与规则回退。
+3. 已实现来源可信度配置化评分和 `discard_reason` 分流。
+4. 已实现 `Jaccard 预筛 + SimHash/Hamming` 去重入口。
+5. 已实现 `section_anchor -> section_title -> chunk_index` 的版本对齐。
+6. `content_marked` 现在优先按段落级 diff，对替换段落再做行内词级 diff，避免轻微改动整段高亮。
 
 ### 2.3 Retriever 对话闭环增强
 
-- 状态：待实现
-- 范围：
-  - 会话结束后的更完整记忆沉淀
+- 状态：已完成
+- 日期：`2026-06-04`
 
-- 当前进展：
-  - 已实现低置信度问题澄清返回
-  - 已实现“不对/不是这个/重新回答”场景的重答 query 改写
-  - 已实现无命中时结合语义记忆的补救提示
+执行情况：
 
-### 2.4 Token 全链路精确统计
+1. 已实现低置信度问题澄清返回。
+2. 已实现“不对/不是这个/重新回答”场景的重答 query 改写。
+3. 已实现无命中时结合语义记忆的补救提示。
+4. 首轮对话会预加载：
+   - `session:{user_id}:{session_id}:context`
+   - `user:{user_id}:semantic`
+   - `user:{user_id}:preferences`
+5. 每轮对话后会把 `user_message` 和 `agent_response` 双事件写入 Redis 会话上下文，并沉淀到 `zr_episodic_logs`。
+6. 用户偏好变更后会刷新 Redis 偏好缓存；新的语义事实写入后会刷新 Redis 语义缓存。
+7. 回答 prompt 现在会同时注入用户偏好、长期语义记忆和近期情景记忆。
 
-- 状态：待实现
-- 当前：`planner/searcher/organizer/retriever/context_manager/memory_manager` 已有基础统计，任务结束可落 `user_token_balance` 和按阶段拆分的 `token_consumption_log`。
-- 还缺：
-  - Tool 调用级 provider tokenizer 精确落账
+### 2.4 Tool 成本与额度统计
+
+- 状态：已完成
+- 日期：`2026-06-03`
+
+执行情况：
+
+1. 新增 `backend/agents/cost_usage.py`，把外部 Tool 成本与额度消耗从 token 结构里独立出来。
+2. `backend/services/tool_adapter.py` 现在会在 `tool.output.metadata.cost_usage` 中返回统一成本元数据。
+3. `config/tool_mcp.yaml` 已为搜索 API 和 crawler 补默认成本/额度配置。
+4. Searcher 会把每次 Tool 调用的 `cost_usage` 聚合到任务态 `state.cost_usage`。
+5. `backend/services/knowledge_service.py` 会把最终聚合结果写入 `reports.cost_usage`。
+6. `backend/services/memory_manager.py` 会把同阶段 `cost_usage` 写入 `token_consumption_log.metadata`，便于对账时同时查看 token 与外部调用成本。
+7. 报告接口已经返回 `cost_usage`，前端可以直接展示任务外部资源消耗账本。
 
 ## 3. 更新规则
 

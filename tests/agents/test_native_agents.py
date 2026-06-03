@@ -90,15 +90,27 @@ class NativeAgentEntryTest(unittest.IsolatedAsyncioTestCase):
             },
             "token_usage": {},
         }
-        api_results = [{"title": "A", "url": "https://example.com/a", "content": "x"}]
-        crawl_results = [
-            {"title": "A", "url": "https://example.com/a", "content": "x"},
-            {"title": "B", "url": "https://example.com/b", "content": "y"},
-        ]
-        with patch("agents.searcher.call_named_search_tool", new=AsyncMock(return_value=api_results)):
-            with patch("agents.searcher.call_crawler_tool", new=AsyncMock(return_value=crawl_results)):
-                result = await run_searcher_agent(state)
+        api_results = {
+            "items": [{"title": "A", "url": "https://example.com/a", "content": "x"}],
+            "tool_output": {"metadata": {"cost_usage": {"provider": "google", "estimated_cost_usd": 0.005, "request_count": 1, "quota_consumed": 1, "quota_unit": "request"}}},
+        }
+        crawl_results = {
+            "items": [
+                {"title": "A", "url": "https://example.com/a", "content": "x"},
+                {"title": "B", "url": "https://example.com/b", "content": "y"},
+            ],
+            "tool_output": {"metadata": {"cost_usage": {"provider": "crawler", "estimated_cost_usd": 0.001, "request_count": 1, "quota_consumed": 1, "quota_unit": "request"}}},
+        }
+        with patch("agents.searcher.get_redis", new=AsyncMock(return_value=AsyncMock())):
+            with patch("agents.searcher.set_subtasks", new=AsyncMock()):
+                with patch("agents.searcher.append_log", new=AsyncMock()):
+                    with patch("agents.searcher.update_subtask", new=AsyncMock()):
+                        with patch("agents.searcher.append_raw_results", new=AsyncMock()):
+                            with patch("agents.searcher.call_named_search_tool", new=AsyncMock(return_value=api_results)):
+                                with patch("agents.searcher.call_crawler_tool", new=AsyncMock(return_value=crawl_results)):
+                                    result = await run_searcher_agent(state)
         self.assertEqual(len(result["raw_results"]), 2)
+        self.assertGreater(result["cost_usage"]["total_usd"], 0)
 
     async def test_run_retriever_agent_wraps_retrieve_and_answer(self) -> None:
         chunks = [{"content": "x", "report_id": "1", "score": 0.9}]

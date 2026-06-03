@@ -139,6 +139,7 @@ async def call_search_api_tool(
     source_sites: list[str] | None = None,
     task_id: str | int | None = None,
     subtask_id: str | None = None,
+    include_metadata: bool = False,
 ) -> list[dict[str, Any]]:
     """按 tool.input/output contract 调用通用搜索 API。"""
 
@@ -168,6 +169,9 @@ async def call_search_api_tool(
         trace=envelope["trace"],
         call=lambda: search_api(query, site_filter=limited_source_sites),
         data_key="results",
+        provider=provider,
+        runtime_item=((_runtime_config().get("tool_mcp") or {}).get("search") or {}).get("web_search", {}),
+        include_metadata=include_metadata,
     )
 
 
@@ -179,6 +183,7 @@ async def call_named_search_tool(
     source_sites: list[str] | None = None,
     task_id: str | int | None = None,
     subtask_id: str | None = None,
+    include_metadata: bool = False,
 ) -> list[dict[str, Any]]:
     """调用声明式搜索 Tool；当前 provider 层统一复用 search_api 实现。"""
 
@@ -216,6 +221,9 @@ async def call_named_search_tool(
         trace=envelope["trace"],
         call=lambda: search_api(query, site_filter=limited_source_sites),
         data_key=_search_output_key(tool_name),
+        provider=provider,
+        runtime_item=((_runtime_config().get("tool_mcp") or {}).get("search") or {}).get(tool_name, {}),
+        include_metadata=include_metadata,
     )
 
 
@@ -225,6 +233,7 @@ async def call_crawler_tool(
     urls: list[str],
     queries: list[str],
     task_id: str | int | None = None,
+    include_metadata: bool = False,
 ) -> list[dict[str, Any]]:
     """按 tool.input/output contract 调用爬虫。"""
 
@@ -252,6 +261,9 @@ async def call_crawler_tool(
         trace=envelope["trace"],
         call=lambda: crawl_sites(urls[:5], queries),
         data_key="pages",
+        provider="crawler",
+        runtime_item=((_runtime_config().get("tool_mcp") or {}).get("crawler") or {}).get("http_crawler", {}),
+        include_metadata=include_metadata,
     )
 
 
@@ -262,6 +274,7 @@ async def call_named_crawler_tool(
     urls: list[str],
     queries: list[str],
     task_id: str | int | None = None,
+    include_metadata: bool = False,
 ) -> list[dict[str, Any]]:
     """调用声明式 crawler Tool；动态 crawler/anti_ban 通过配置和 metadata 区分策略。"""
 
@@ -272,7 +285,15 @@ async def call_named_crawler_tool(
     runtime_item = runtime_tools.get(tool_name) or {}
     if not runtime_item.get("enabled", False):
         raise ContractValidationError("tool.runtime", f"disabled tool: {tool_name}")
-    return await call_crawler_tool(caller=caller, urls=urls, queries=queries, task_id=task_id)
+    return await _execute_tool(
+        tool_name=tool_name,
+        trace={"trace_id": f"tool:{tool_name}:{task_id or 'none'}", "task_id": task_id, "subtask_id": None},
+        call=lambda: crawl_sites(urls[:5], queries),
+        data_key="pages",
+        provider=tool_name,
+        runtime_item=((_runtime_config().get("tool_mcp") or {}).get("crawler") or {}).get(tool_name, {}),
+        include_metadata=include_metadata,
+    )
 
 
 async def call_mcp_tool(
@@ -332,7 +353,10 @@ async def _execute_tool(
     trace: dict[str, Any],
     call: Callable[[], Awaitable[list[dict[str, Any]]]],
     data_key: str,
-) -> list[dict[str, Any]]:
+    provider: str | None,
+    runtime_item: dict[str, Any] | None,
+    include_metadata: bool = False,
+) -> list[dict[str, Any]] | dict[str, Any]:
     started = time.perf_counter()
     try:
         results = await call()
@@ -351,11 +375,15 @@ async def _execute_tool(
                 "category": "provider",
             },
             "metrics": {"duration_ms": _duration_ms(started), "retry_count": 0, "result_count": 0, "token_usage": None},
-            "metadata": {},
+            "metadata": {
+                "provider": provider,
+                "cost_usage": _estimate_cost_usage(runtime_item or {}, provider=provider, result_count=0),
+            },
         }
         validate_tool_output(output)
         raise
 
+    cost_usage = _estimate_cost_usage(runtime_item or {}, provider=provider, result_count=len(results))
     output = {
         "schema_version": "1.0",
         "contract_type": "tool.output",
@@ -370,9 +398,11 @@ async def _execute_tool(
             "result_count": len(results),
             "token_usage": None,
         },
-        "metadata": {"finished_at": _now()},
+        "metadata": {"finished_at": _now(), "provider": provider, "cost_usage": cost_usage},
     }
     validate_tool_output(output)
+    if include_metadata:
+        return {"items": results, "tool_output": output}
     return results
 
 
@@ -417,3 +447,28 @@ def _registered_mcp_server(name: str) -> dict[str, Any]:
 
 def _duration_ms(started: float) -> int:
     return int((time.perf_counter() - started) * 1000)
+
+
+def _estimate_cost_usage(runtime_item: dict[str, Any], *, provider: str | None, result_count: int) -> dict[str, Any]:
+    """按配置估算一次 Tool 调用的成本与额度消耗。
+
+    这里记录的是统一估算账本，不承诺与 provider 最终账单逐毫分一致。真实账单对账后可再扩展。
+    """
+
+    cost_cfg = (runtime_item.get("cost") or {}) if isinstance(runtime_item, dict) else {}
+    quota_cfg = (runtime_item.get("quota") or {}) if isinstance(runtime_item, dict) else {}
+    base_cost = float(cost_cfg.get("base_request_cost_usd") or 0.0)
+    per_result_cost = float(cost_cfg.get("per_result_cost_usd") or 0.0)
+    per_page_cost = float(cost_cfg.get("per_page_cost_usd") or 0.0)
+    estimated_cost = round(base_cost + (per_result_cost * result_count) + (per_page_cost * result_count), 6)
+    request_count = int(cost_cfg.get("request_count_per_call") or 1)
+    quota_consumed = int(quota_cfg.get("quota_per_call") or request_count)
+    return {
+        "provider": provider,
+        "billing_mode": cost_cfg.get("billing_mode") or "estimated",
+        "estimated_cost_usd": estimated_cost,
+        "request_count": request_count,
+        "quota_consumed": quota_consumed,
+        "quota_unit": quota_cfg.get("unit") or "request",
+        "result_count": int(result_count or 0),
+    }

@@ -7,8 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from db.models import Report, KnowledgeChunk, SearchTask
-from core.embedding_router import get_embeddings
+from core.embedding_router import get_embeddings_with_usage
 from constraint.validation.validator import validate_db_contract
+from agents.token_usage import merge_stage_usage
 from services.organizer_processing import build_marked_html
 
 
@@ -21,6 +22,7 @@ async def store_report(
     result_count: int = 0,
     quality_score: float | None = None,
     token_usage: dict | None = None,
+    cost_usage: dict | None = None,
     source_search_ids: list[int] | None = None,
 ) -> Report:
     validate_db_contract(
@@ -34,6 +36,7 @@ async def store_report(
                 "content_md": content_md,
                 "toc": toc,
                 "token_usage": token_usage or {},
+                "cost_usage": cost_usage or {},
             },
             "knowledge_chunks": {
                 "report_id": 0,
@@ -54,6 +57,7 @@ async def store_report(
         summary=summary,
         quality_score=quality_score,
         token_usage=token_usage or {},
+        cost_usage=cost_usage or {},
         result_count=result_count,
         started_at=datetime.utcnow(),
         finished_at=datetime.utcnow(),
@@ -68,9 +72,18 @@ async def store_report(
             chunk["summary"] = _summarize_chunk(chunk["content"])
 
         summaries = [c["summary"] for c in chunks]
-        embeddings = await get_embeddings(summaries)
+        embeddings, embedding_usage = await get_embeddings_with_usage(summaries)
+        if token_usage is not None:
+            merged = merge_stage_usage(
+                token_usage,
+                stage="sort",
+                usage=embedding_usage,
+                model=None,
+            )
+            token_usage.clear()
+            token_usage.update(merged)
         for i, (chunk, vec) in enumerate(zip(chunks, embeddings)):
-            previous_content = previous_chunks[i].content if i < len(previous_chunks) else None
+            previous_content = _match_previous_content(previous_chunks, chunk, i)
             db.add(KnowledgeChunk(
                 report_id=report.id,
                 chunk_index=i,
@@ -204,3 +217,22 @@ async def _load_previous_chunks(db: AsyncSession, *, task: SearchTask) -> list[K
         .order_by(KnowledgeChunk.chunk_index.asc())
     )
     return list(rows.scalars())
+
+
+def _match_previous_content(previous_chunks: list[KnowledgeChunk], chunk: dict, index: int) -> str | None:
+    anchor = str(chunk.get("section_anchor") or "")
+    title = str(chunk.get("section_title") or "")
+
+    if anchor:
+        for previous in previous_chunks:
+            if str(previous.section_anchor or "") == anchor:
+                return previous.content
+
+    if title:
+        for previous in previous_chunks:
+            if str(previous.section_title or "") == title:
+                return previous.content
+
+    if 0 <= index < len(previous_chunks):
+        return previous_chunks[index].content
+    return None

@@ -124,10 +124,12 @@ Lore Seeker 是一个多 Agent 知识库系统。用户创建搜索任务后，�
 
 1. Agent 记忆表已经建模；任务收尾现在通过独立 `memory_manager` 子 Agent 执行 Redis 工作区归档、显式偏好写入、Skill 使用反馈、高分任务 Skill 写入，以及 LLM 隐式偏好、语义记忆和情景日志抽取。记忆抽取失败会降级为工作日志，不阻断已完成报告。
 2. Token 使用量已按任务环节写入 `reports.token_usage`；任务结束后由记忆管理子 Agent 更新 `user_token_balance` 并写入 `token_consumption_log` 扣减流水。
-3. `planner / organizer / retriever.answer` 已切换到 PydanticAI `Agent.run()`；`searcher` 已统一为独立可测试入口，LangGraph 当前只保留 orchestration 责任。
-4. `/api/v1/search/start` 与 `/api/v1/tasks` 的职责边界后续单独收敛。
-5. Agent、Tool、Redis/DB contract 已建目录和基础 schema；Agent 节点边界、Searcher Tool 调用、任务 Redis 工作区、关键 DB 写入 / 查询已接入校验。HTTP 路由级 `ContractValidationMiddleware` 已覆盖 `/api/v1/tasks`、`/api/v1/search/start`、`/api/v1/knowledge/query`、`/api/v1/users/me/preferences*`、`/api/v1/reports/{id}/evaluate` 的核心字段漂移校验。
-6. Tool / MCP 运行时已具备动态发现与统一网关：`discover_enabled_tools()`、`list_registered_mcp_servers()`、`call_named_search_tool()`、`call_named_crawler_tool()`、`call_mcp_tool()` 均已落地。
+3. 搜索 API、crawler 和 MCP 的外部消耗已从 token 结构中拆出，统一聚合到 `reports.cost_usage`；阶段级成本也会写入 `token_consumption_log.metadata` 便于对账。
+4. `planner / organizer / retriever.answer` 已切换到 PydanticAI `Agent.run()`；`searcher` 已统一为独立可测试入口，LangGraph 当前只保留 orchestration 责任。
+5. Retriever 首轮问答会预加载会话上下文、语义记忆和用户偏好；每轮问答后会把用户消息与 Agent 回复双事件沉淀到 Redis 和 `zr_episodic_logs`。
+6. `/api/v1/search/start` 与 `/api/v1/tasks` 的职责边界已收敛为“快速 facade + 任务主入口”的模式。
+7. Agent、Tool、Redis/DB contract 已建目录和基础 schema；Agent 节点边界、Searcher Tool 调用、任务 Redis 工作区、关键 DB 写入 / 查询已接入校验。HTTP 路由级 `ContractValidationMiddleware` 已覆盖 `/api/v1/tasks`、`/api/v1/search/start`、`/api/v1/knowledge/query`、`/api/v1/users/me/preferences*`、`/api/v1/reports/{id}/evaluate` 的核心字段漂移校验。
+8. Tool / MCP 运行时已具备动态发现与统一网关：`discover_enabled_tools()`、`list_registered_mcp_servers()`、`call_named_search_tool()`、`call_named_crawler_tool()`、`call_mcp_tool()` 均已落地；Searcher 还具备结果不足补搜和按问题类型修复性补搜。
 
 ## 6. 验收基线
 

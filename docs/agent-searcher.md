@@ -96,6 +96,7 @@ Searcher 在正式搜索前执行预处理，优先复用已有结果；无法�
 4. 执行队列生成
 4.1 将 Planner 的子任务列表转换成可执行队列。
 4.2 将队列、站点分组、并发限制和预计任务数量写入 Redis。
+4.3 当前运行时会把每个 job 写入 `task:{task_id}:subtasks`，并在执行时逐条更新状态。
 
 ### 验收标准
 
@@ -130,6 +131,13 @@ Searcher 按搜索策略分批执行任务。并发上限为 10，单站点请�
 2.4 执行爬虫时按站点策略设置 User-Agent、等待策略和超时。
 2.5 在 Redis 中实时更新中间状态，例如“正在解析某网站”。
 2.6 每个网站任务设置超时控制，默认 3 分钟。
+2.7 当前实现会把 `query × site` 拆成独立 job，并通过：
+
+- 全局 `asyncio.Semaphore`
+- 每站点 `asyncio.Semaphore`
+- 站点级 `request_delay_ms`
+
+共同控制执行节奏。
 
 3. 重试与失败分类
 3.1 失败时判断错误类型。
@@ -140,8 +148,19 @@ Searcher 按搜索策略分批执行任务。并发上限为 10，单站点请�
 3.6 搜索或爬虫失败时记录失败分类和上下文，不吞掉错误。
 3.7 当前运行时已经实现配置化 `max_attempts / initial_delay / max_delay / multiplier`。
 
-4. 结果标准化
-4.1 所有执行结果统一标准化为 `title`、`url`、`content`。
+4. 搜索质量自反馈
+4.1 当结果数量不足或前 5 条结果平均重叠分低于阈值时，先自动触发一次 `web_search` 补搜。
+4.2 如果补搜后仍判断覆盖面偏窄，则按查询语义选择修复性补搜工具：
+
+- 代码 / 仓库类：`github_search`
+- 论文 / 专利类：`academic_search`
+- 实时新闻类：`news_search`
+
+4.3 修复结果不会覆盖原结果，而是并入候选集合后统一去重。
+4.4 每次补搜和修复都会记录到 Redis `working_log`。
+
+5. 结果标准化
+5.1 所有执行结果统一标准化为 `title`、`url`、`content`。
 
 ### 验收标准
 
@@ -150,6 +169,7 @@ Searcher 按搜索策略分批执行任务。并发上限为 10，单站点请�
 - 子任务状态能在 Redis 中实时追踪。
 - 可重试和不可重试错误分类清晰。
 - 查询词能够自动路由到更合适的命名搜索 Tool。
+- `task:{task_id}:subtasks` 与 `task:{task_id}:working_log` 能反映搜索阶段的实时推进情况。
 
 ## 5. 搜索 API 路由
 
@@ -256,6 +276,19 @@ Searcher 在执行结束后统一汇总搜索元数据、生成搜索摘要、�
 3.2 将汇总记录写入 Redis。
 3.3 将标准化、去重后的搜索结果写入 state。
 3.4 通知 Planner 搜索阶段完成。
+
+4. 成本与额度统计
+4.1 Searcher 不把搜索 API / crawler 的外部消耗混进 `token_usage`。
+4.2 每次 Tool 调用由 `tool_adapter` 返回 `metadata.cost_usage`：
+
+- `estimated_cost_usd`
+- `request_count`
+- `quota_consumed`
+- `quota_unit`
+- `provider`
+
+4.3 Searcher 将这些值按 `search` 阶段聚合到 `state.cost_usage`。
+4.4 Worker 在任务结束时把聚合结果写入 `reports.cost_usage`。
 
 ### 验收标准
 

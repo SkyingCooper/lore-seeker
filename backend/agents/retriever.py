@@ -4,7 +4,7 @@ from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field
-from core.embedding_router import get_embeddings, rerank
+from core.embedding_router import get_embeddings_with_usage, rerank_with_usage
 from core.prompt_loader import get_prompt, render_prompt
 from agents.guardrails import (
     AgentErrorContext,
@@ -71,7 +71,8 @@ async def retrieve(query: str, db: AsyncSession, user_id: int, top_k: int = 20) 
         )
     )
     try:
-        query_vec = (await get_embeddings([query]))[0]
+        vectors, embed_usage = await get_embeddings_with_usage([query])
+        query_vec = vectors[0]
     except Exception as exc:
         on_tool_error(
             AgentErrorContext(
@@ -91,6 +92,12 @@ async def retrieve(query: str, db: AsyncSession, user_id: int, top_k: int = 20) 
             operation="embed_user_query",
             result={"vector_dim": len(query_vec)},
         )
+    )
+    embed_stage_usage = merge_stage_usage(
+        None,
+        stage="retrieve",
+        usage=embed_usage,
+        model=None,
     )
 
     # 通过 reports -> search_tasks 过滤 user_id，避免跨用户检索知识切片。
@@ -170,7 +177,7 @@ async def retrieve(query: str, db: AsyncSession, user_id: int, top_k: int = 20) 
         )
     )
     try:
-        reranked = await rerank(query, [d["content"] for d in docs])
+        reranked, rerank_usage = await rerank_with_usage(query, [d["content"] for d in docs])
     except Exception as exc:
         on_tool_error(
             AgentErrorContext(
@@ -191,6 +198,12 @@ async def retrieve(query: str, db: AsyncSession, user_id: int, top_k: int = 20) 
             result={"reranked_count": len(reranked)},
         )
     )
+    state_usage = merge_stage_usage(
+        embed_stage_usage,
+        stage="retrieve",
+        usage=rerank_usage,
+        model=None,
+    )
     result = []
     for r in reranked[:rerank_top_k]:
         if float(r["score"]) < rerank_min_score:
@@ -204,7 +217,7 @@ async def retrieve(query: str, db: AsyncSession, user_id: int, top_k: int = 20) 
         AgentOutputContext(
             agent_name="retriever",
             operation="return_sources",
-            result={"sources": result},
+            result={"sources": result, "token_usage": state_usage},
         )
     )
     return result
@@ -424,7 +437,11 @@ def _rrf_fuse(keyword_rows, vector_rows, *, rrf_k: int, limit: int) -> list[dict
 def _memory_context_text(memory_context: dict[str, Any]) -> str:
     episodic = memory_context.get("episodic") or []
     semantic = memory_context.get("semantic") or []
+    preferences = memory_context.get("preferences") or []
     parts: list[str] = []
+    if preferences:
+        parts.append("用户偏好：")
+        parts.extend(f"- {item.get('key')}: {item.get('value')}" for item in preferences[:8])
     if semantic:
         parts.append("长期语义记忆：")
         parts.extend(f"- {item.get('title')}: {item.get('summary')}" for item in semantic[:8])

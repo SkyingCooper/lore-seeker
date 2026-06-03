@@ -108,6 +108,7 @@ User -> Topic -> SearchTask -> Report -> KnowledgeChunk
 | `toc` | 目录 JSON |
 | `summary` | 摘要 |
 | `token_usage` | 此次任务消耗的 token 数量，按环节细分 |
+| `cost_usage` | 此次任务外部 Tool 的估算成本与额度消耗 |
 | `quality_score` | 质量评分 |
 | `user_satisfaction` | 用户满意度 |
 
@@ -158,6 +159,37 @@ User -> Topic -> SearchTask -> Report -> KnowledgeChunk
 }
 ```
 
+`reports.cost_usage` 结构：
+
+```json
+{
+  "total_usd": 0.012,
+  "breakdown": {
+    "search": {
+      "estimated_cost_usd": 0.012,
+      "request_count": 3,
+      "quota_consumed": 3,
+      "quota_unit": "request",
+      "providers": {
+        "google": {
+          "estimated_cost_usd": 0.01,
+          "request_count": 2,
+          "quota_consumed": 2,
+          "quota_unit": "request"
+        },
+        "crawler": {
+          "estimated_cost_usd": 0.002,
+          "request_count": 1,
+          "quota_consumed": 1,
+          "quota_unit": "request"
+        }
+      }
+    }
+  },
+  "timestamp": "2026-06-04T08:30:00Z"
+}
+```
+
 #### user_token_balance
 
 | 字段 | 说明 |
@@ -189,6 +221,7 @@ User -> Topic -> SearchTask -> Report -> KnowledgeChunk
 Token 统计边界：
 
 - `reports.token_usage` 保存单次任务按环节拆分的实际 token 消耗。
+- `reports.cost_usage` 保存搜索 API、crawler、MCP 等外部能力的估算成本与额度消耗。
 - `user_token_balance` 保存用户当前 token 余额和历史累计消耗。
 - `token_consumption_log` 保存每次任务结束后的按阶段扣减流水。
 - 任务结束后由 Planner 生成的记忆管理子 Agent 统一读取 `reports.token_usage` 同结构数据，更新余额表并写入流水。

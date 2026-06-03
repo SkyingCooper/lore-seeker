@@ -80,6 +80,7 @@ async def _run(task_id: str, user_id: str, query: str, topic_config: dict):
         "quality_score": 0.0,
         "quality_feedback": "",
         "token_usage": {},
+        "cost_usage": {},
         "iteration": 0,
         "final": False,
     }
@@ -118,6 +119,7 @@ async def _run(task_id: str, user_id: str, query: str, topic_config: dict):
                     result_count=len(raw_results),
                     quality_score=final_state.get("quality_score"),
                     token_usage=final_state.get("token_usage") or {},
+                    cost_usage=final_state.get("cost_usage") or {},
                     source_search_ids=[history.id],
                 )
                 attach_report(history, report.id)

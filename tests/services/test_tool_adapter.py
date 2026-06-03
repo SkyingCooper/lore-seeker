@@ -40,6 +40,20 @@ class ToolAdapterTest(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(output, results)
 
+    async def test_named_search_tool_can_return_cost_metadata(self) -> None:
+        results = [{"title": "A", "url": "https://example.com", "content": "hello"}]
+        with patch("services.tool_adapter.search_api", new=AsyncMock(return_value=results)):
+            output = await call_named_search_tool(
+                tool_name="web_search",
+                caller="searcher",
+                query="LoreSeeker",
+                source_sites=["https://example.com"],
+                task_id="1",
+                include_metadata=True,
+            )
+        self.assertEqual(output["items"], results)
+        self.assertEqual(output["tool_output"]["metadata"]["cost_usage"]["provider"], "google")
+
     async def test_registered_mcp_server_requires_local_handler(self) -> None:
         servers = list_registered_mcp_servers()
         self.assertIsInstance(servers, list)

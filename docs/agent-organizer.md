@@ -124,9 +124,17 @@ Organizer 按“预处理 -> 生成文档 -> 评估 -> 大模型兜底 -> 后处
 
 1.2.1 内容级去重：
 
-- 对正文计算 SimHash 或 MinHash。
+- 当前实现采用两段式判重：
+  - 第一段：正文 token 集合做 Jaccard 预筛；
+  - 第二段：通过预筛后，再计算 64-bit SimHash 指纹相似度。
 - 相似度 `> 0.85` 视为重复。
 - 同组重复内容只保留可信度最高的一条。
+
+算法措施：
+
+- Jaccard 只负责快速排除明显不相似内容，避免每条都做指纹比对。
+- SimHash 负责识别近似改写、轻微措辞变化和镜像转载。
+- 最终相似度取 `max(Jaccard, SimHash 相似度)`，减少漏判。
 
 1.2.2 可信度排序：
 
@@ -488,6 +496,16 @@ report_version:{user_id}:{topic_id}:{date}:sequence
 4.1 Organizer 生成新版本时，对比同一用户、同一主题的上一版本 `content` 和本版本 `content`。
 
 4.2 对比结果生成带标记 HTML，写入 `knowledge_chunks.content_marked`。
+
+当前实现措施：
+
+- 优先按 `section_anchor` 对齐新旧切片。
+- `section_anchor` 缺失时按 `section_title` 对齐。
+- 仍无法匹配时，最后按 `chunk_index` 兜底。
+- 这样可以避免章节顺序轻微变化时，把本来对应的内容错配到别的 section。
+- diff 渲染优先按段落对齐。
+- 当同位置段落被替换时，再退回到行内词级 diff，而不是整段整块高亮。
+- 这样可以在轻微措辞修改时保留更多未变化上下文，可读性比纯词级顺序 diff 更稳定。
 
 4.3 前端可以选择渲染原始 `content` 或差异版 `content_marked`。
 

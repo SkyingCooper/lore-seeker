@@ -68,11 +68,24 @@ Tool / MCP 层负责把外部能力以受约束、可配置、可审计的方式
 - `max_results`
 - `rate_limit`
 - `backoff`
+- `cost`
+- `quota`
 
 运行时入口：
 
 - `call_search_api_tool()`：兼容历史 `search_api` 包装。
 - `call_named_search_tool()`：按 `web_search / academic_search / github_search / stackoverflow_search / news_search` 名称走统一 contract。
+
+成本与额度统计：
+
+- 每次 Tool 调用完成后，`tool_adapter` 按配置估算一条 `cost_usage`：
+  - `estimated_cost_usd = base_request_cost_usd + per_result_cost_usd * result_count`
+  - crawler 额外支持 `per_page_cost_usd`
+- 每次调用默认记 1 次请求；如果后续 provider 能返回更精确账单，可替换为真实值。
+- 额度统一记录：
+  - `quota_consumed`
+  - `quota_unit`
+- 这些值会进入 `tool.output.metadata.cost_usage`，再由 Searcher 聚合进 `reports.cost_usage`。
 
 ### 验收标准
 
@@ -108,6 +121,7 @@ Tool / MCP 层负责把外部能力以受约束、可配置、可审计的方式
 - 代理池和请求间隔。
 - 内容解析器：`readability / trafilatura / newspaper3k`。
 - `site_policies`：按域名配置并发、延迟、超时、重试和退避。
+- `cost / quota`：统一记录静态 crawler、动态 crawler 和反爬成本估算。
 
 运行时入口：
 
@@ -210,6 +224,6 @@ Tool 分两层：
 
 1. Tool 级熔断器：连续失败超过阈值后短时间停用该 provider。
 2. Provider 健康检查：定时检查 API key、额度和可用性。
-3. 成本统计：按 Tool/provider 记录调用次数、耗时和 token / API 成本。
+3. 成本统计：当前已按 Tool/provider 记录调用次数、耗时和估算 API/crawler 成本；后续可接真实账单回填。
 4. 搜索质量反馈：把低相关 provider 降权，进入 `config/source_credibility.yaml` 或独立质量配置。
 5. MCP 权限分级：只读 MCP、写入型 MCP、敏感 MCP 分级授权。

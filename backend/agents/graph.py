@@ -19,6 +19,7 @@ class AgentState(TypedDict):
     quality_score: float                        # 质检分数
     quality_feedback: str                       # 质检反馈
     token_usage: dict                           # 按环节统计 token 消耗
+    cost_usage: dict                            # 按环节统计外部 Tool 成本和额度消耗
     iteration: int                              # 当前迭代次数
     final: bool                                 # 是否完成
 

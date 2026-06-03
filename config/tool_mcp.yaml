@@ -53,6 +53,14 @@ tool_mcp:
         initial_delay_seconds: 1
         max_delay_seconds: 60
         multiplier: 2
+      cost:
+        billing_mode: "estimated"
+        base_request_cost_usd: 0.005
+        per_result_cost_usd: 0.0
+        request_count_per_call: 1
+      quota:
+        unit: "request"
+        quota_per_call: 1
 
     academic_search:
       enabled: true
@@ -77,6 +85,14 @@ tool_mcp:
           base_url: "http://export.arxiv.org/api/query"
           timeout_seconds: 30
           max_results: 20
+      cost:
+        billing_mode: "estimated"
+        base_request_cost_usd: 0.006
+        per_result_cost_usd: 0.0
+        request_count_per_call: 1
+      quota:
+        unit: "request"
+        quota_per_call: 1
 
     github_search:
       enabled: true
@@ -95,6 +111,14 @@ tool_mcp:
       rate_limit:
         enabled: true
         requests_per_second: 0.5
+      cost:
+        billing_mode: "estimated"
+        base_request_cost_usd: 0.002
+        per_result_cost_usd: 0.0
+        request_count_per_call: 1
+      quota:
+        unit: "request"
+        quota_per_call: 1
 
     stackoverflow_search:
       enabled: true
@@ -108,6 +132,14 @@ tool_mcp:
       max_results: 20
       sort_by: "votes"
       order: "desc"
+      cost:
+        billing_mode: "estimated"
+        base_request_cost_usd: 0.0015
+        per_result_cost_usd: 0.0
+        request_count_per_call: 1
+      quota:
+        unit: "request"
+        quota_per_call: 1
 
     news_search:
       enabled: true
@@ -127,6 +159,14 @@ tool_mcp:
           base_url: "https://gnews.io/api/v4"
           timeout_seconds: 30
           max_results: 20
+      cost:
+        billing_mode: "estimated"
+        base_request_cost_usd: 0.004
+        per_result_cost_usd: 0.0
+        request_count_per_call: 1
+      quota:
+        unit: "request"
+        quota_per_call: 1
 
   crawler:
     http_crawler:
@@ -141,6 +181,14 @@ tool_mcp:
       headers:
         Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
         Accept-Language: "zh-CN,zh;q=0.9,en;q=0.8"
+      cost:
+        billing_mode: "estimated"
+        base_request_cost_usd: 0.0005
+        per_page_cost_usd: 0.0002
+        request_count_per_call: 1
+      quota:
+        unit: "request"
+        quota_per_call: 1
 
     dynamic_crawler:
       enabled: false
@@ -155,6 +203,14 @@ tool_mcp:
         width: 1920
         height: 1080
       user_data_dir: "/tmp/playwright_profile"
+      cost:
+        billing_mode: "estimated"
+        base_request_cost_usd: 0.003
+        per_page_cost_usd: 0.0005
+        request_count_per_call: 1
+      quota:
+        unit: "request"
+        quota_per_call: 1
 
     anti_ban:
       enabled: true
@@ -176,6 +232,14 @@ tool_mcp:
         retry_after_header: "Retry-After"
         max_retries: 5
         base_wait_seconds: 60
+      cost:
+        billing_mode: "estimated"
+        base_request_cost_usd: 0.001
+        per_page_cost_usd: 0.0
+        request_count_per_call: 1
+      quota:
+        unit: "request"
+        quota_per_call: 1
 
     content_parser:
       method: "readability"

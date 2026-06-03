@@ -100,18 +100,77 @@ def classify_discard_reason(item: dict[str, Any], cfg: dict[str, Any] | None = N
 
 
 def build_marked_html(new_text: str, old_text: str | None) -> str:
-    """生成带 del/ins 标记的 HTML diff。"""
+    """生成带 del/ins 标记的 HTML diff。
+
+    优先按段落对齐；段落替换时再退回到行内词级 diff，避免整段轻微修改时整块高亮。
+    """
 
     if not old_text:
         return f'<ins class="added">{html.escape(new_text)}</ins>'
 
     import difflib
 
-    matcher = difflib.SequenceMatcher(a=old_text.split(), b=new_text.split())
+    old_parts = _paragraphs(old_text)
+    new_parts = _paragraphs(new_text)
+    matcher = difflib.SequenceMatcher(a=old_parts, b=new_parts)
     parts: list[str] = []
     for opcode, i1, i2, j1, j2 in matcher.get_opcodes():
-        old_segment = " ".join(old_text.split()[i1:i2])
-        new_segment = " ".join(new_text.split()[j1:j2])
+        if opcode == "equal":
+            parts.extend(f"<p>{html.escape(part)}</p>" for part in new_parts[j1:j2])
+        elif opcode == "delete":
+            parts.extend(f"<p><del>{html.escape(part)}</del></p>" for part in old_parts[i1:i2])
+        elif opcode == "insert":
+            parts.extend(f'<p><ins class="added">{html.escape(part)}</ins></p>' for part in new_parts[j1:j2])
+        elif opcode == "replace":
+            old_segment = old_parts[i1:i2]
+            new_segment = new_parts[j1:j2]
+            if len(old_segment) == len(new_segment):
+                for old_para, new_para in zip(old_segment, new_segment):
+                    parts.append(f"<p>{_inline_diff(old_para, new_para)}</p>")
+            else:
+                parts.extend(f"<p><del>{html.escape(part)}</del></p>" for part in old_segment)
+                parts.extend(f'<p><ins class="modified">{html.escape(part)}</ins></p>' for part in new_segment)
+    return "\n".join(part for part in parts if part).strip()
+
+
+def _find_duplicate(item: dict[str, Any], existing: list[dict[str, Any]], threshold: float) -> dict[str, Any] | None:
+    item_tokens = _token_set(str(item.get("content") or ""))
+    item_fingerprint = _simhash(item_tokens)
+    for other in existing:
+        other_tokens = _token_set(str(other.get("content") or ""))
+        jaccard_similarity = _jaccard(item_tokens, other_tokens)
+        if jaccard_similarity < threshold * 0.6:
+            continue
+        other_fingerprint = _simhash(other_tokens)
+        hamming_similarity = 1 - (_hamming_distance(item_fingerprint, other_fingerprint) / 64)
+        similarity = max(jaccard_similarity, hamming_similarity)
+        if similarity >= threshold:
+            return other
+    return None
+
+
+def _token_set(text: str) -> set[str]:
+    return set(re.findall(r"[\w\u4e00-\u9fff]+", text.lower()))
+
+
+def _paragraphs(text: str) -> list[str]:
+    items = [part.strip() for part in re.split(r"\n\s*\n", text) if part.strip()]
+    if items:
+        return items
+    collapsed = text.strip()
+    return [collapsed] if collapsed else []
+
+
+def _inline_diff(old_text: str, new_text: str) -> str:
+    import difflib
+
+    matcher = difflib.SequenceMatcher(a=old_text.split(), b=new_text.split())
+    parts: list[str] = []
+    old_words = old_text.split()
+    new_words = new_text.split()
+    for opcode, i1, i2, j1, j2 in matcher.get_opcodes():
+        old_segment = " ".join(old_words[i1:i2])
+        new_segment = " ".join(new_words[j1:j2])
         if opcode == "equal":
             parts.append(html.escape(new_segment))
         elif opcode == "delete":
@@ -126,24 +185,30 @@ def build_marked_html(new_text: str, old_text: str | None) -> str:
     return " ".join(part for part in parts if part).strip()
 
 
-def _find_duplicate(item: dict[str, Any], existing: list[dict[str, Any]], threshold: float) -> dict[str, Any] | None:
-    item_tokens = _token_set(str(item.get("content") or ""))
-    for other in existing:
-        other_tokens = _token_set(str(other.get("content") or ""))
-        similarity = _jaccard(item_tokens, other_tokens)
-        if similarity >= threshold:
-            return other
-    return None
-
-
-def _token_set(text: str) -> set[str]:
-    return set(re.findall(r"[\w\u4e00-\u9fff]+", text.lower()))
-
-
 def _jaccard(left: set[str], right: set[str]) -> float:
     if not left or not right:
         return 0.0
     return len(left & right) / max(1, len(left | right))
+
+
+def _simhash(tokens: set[str]) -> int:
+    weights = [0] * 64
+    for token in tokens:
+        token_hash = hash(token) & ((1 << 64) - 1)
+        for bit in range(64):
+            if token_hash & (1 << bit):
+                weights[bit] += 1
+            else:
+                weights[bit] -= 1
+    fingerprint = 0
+    for bit, weight in enumerate(weights):
+        if weight >= 0:
+            fingerprint |= 1 << bit
+    return fingerprint
+
+
+def _hamming_distance(left: int, right: int) -> int:
+    return (left ^ right).bit_count()
 
 
 def _source_category(item: dict[str, Any]) -> str:

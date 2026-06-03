@@ -35,6 +35,9 @@ END $$;
 ALTER TABLE IF EXISTS reports
     ADD COLUMN IF NOT EXISTS token_usage JSONB DEFAULT '{}'::jsonb;
 
+ALTER TABLE IF EXISTS reports
+    ADD COLUMN IF NOT EXISTS cost_usage JSONB DEFAULT '{"total_usd": 0, "breakdown": {}, "timestamp": null}'::jsonb;
+
 ALTER TABLE IF EXISTS knowledge_chunks
     ADD COLUMN IF NOT EXISTS content_marked TEXT,
     ADD COLUMN IF NOT EXISTS summary TEXT,
@@ -133,6 +136,7 @@ CREATE INDEX IF NOT EXISTS idx_zr_semantic_memories_embedding
 
 COMMENT ON TABLE log_guardrail IS 'Agent 护栏审计归档表，保存 warning / critical 级决策';
 COMMENT ON COLUMN reports.token_usage IS '本次任务 token 消耗统计，按 Agent/环节细分';
+COMMENT ON COLUMN reports.cost_usage IS '本次任务外部 Tool 估算成本与额度消耗，按环节细分';
 COMMENT ON COLUMN knowledge_chunks.content_marked IS '与上一版本对比后的标记 HTML';
 COMMENT ON COLUMN knowledge_chunks.summary IS '切片摘要，50-150 字，用于检索预览和向量化';
 COMMENT ON COLUMN knowledge_chunks.source_search_ids IS '该切片来源的 search_histories.id 集合';

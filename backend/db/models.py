@@ -112,6 +112,7 @@ class Report(Base):
     toc: Mapped[list] = mapped_column(JSON, default=list)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     token_usage: Mapped[dict] = mapped_column(JSON, default=dict)
+    cost_usage: Mapped[dict] = mapped_column(JSON, default=dict)
     user_satisfaction: Mapped[str | None] = mapped_column(String(20), nullable=True)
     satisfaction_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

@@ -23,17 +23,25 @@ async def preload_retriever_context(db: AsyncSession, redis: Redis, *, user_id: 
 
     context_key = _context_key(user_id, session_id)
     semantic_key = _semantic_key(user_id)
+    preferences_key = _preferences_key(user_id)
 
     context_raw = await redis.get(context_key)
     semantic_raw = await redis.get(semantic_key)
-    if context_raw and semantic_raw:
-        return {"episodic": json.loads(context_raw), "semantic": json.loads(semantic_raw)}
+    preferences_raw = await redis.get(preferences_key)
+    if context_raw and semantic_raw and preferences_raw:
+        return {
+            "episodic": json.loads(context_raw),
+            "semantic": json.loads(semantic_raw),
+            "preferences": json.loads(preferences_raw),
+        }
 
     episodic = await _load_episodic(db, user_id=user_id)
     semantic = await _load_semantic(db, user_id=user_id)
+    preferences = await _load_preferences(db, user_id=user_id)
     await redis.setex(context_key, CONTEXT_TTL_SECONDS, json.dumps(episodic, ensure_ascii=False))
     await redis.setex(semantic_key, CONTEXT_TTL_SECONDS, json.dumps(semantic, ensure_ascii=False))
-    return {"episodic": episodic, "semantic": semantic}
+    await redis.setex(preferences_key, CONTEXT_TTL_SECONDS, json.dumps(preferences, ensure_ascii=False))
+    return {"episodic": episodic, "semantic": semantic, "preferences": preferences}
 
 
 async def record_retriever_turn(
@@ -48,17 +56,17 @@ async def record_retriever_turn(
     """每轮对话结束后记录情景记忆，并抽取简单偏好和长期事实。"""
 
     context_key = _context_key(user_id, session_id)
+    semantic_key = _semantic_key(user_id)
+    preferences_key = _preferences_key(user_id)
     now = datetime.utcnow().isoformat()
-    turn = {
-        "event_type": "conversation",
-        "user_message": user_message,
-        "assistant_message": assistant_message[:1000],
-        "created_at": now,
-    }
+    turn = [
+        {"event_type": "user_message", "content": user_message, "created_at": now},
+        {"event_type": "agent_response", "content": assistant_message[:1000], "created_at": now},
+    ]
     raw = await redis.get(context_key)
     context = json.loads(raw) if raw else []
-    context.append(turn)
-    context = context[-5:]
+    context.extend(turn)
+    context = context[-10:]
     await redis.setex(context_key, CONTEXT_TTL_SECONDS, json.dumps(context, ensure_ascii=False))
 
     await insert_episodic_log(
@@ -69,6 +77,16 @@ async def record_retriever_turn(
         content=user_message,
         importance=_estimate_importance(user_message),
         metadata={"assistant_preview": assistant_message[:500]},
+        caller="retriever",
+    )
+    await insert_episodic_log(
+        db,
+        user_id=user_id,
+        session_key=session_id,
+        event_type="agent_response",
+        content=assistant_message[:1000],
+        importance=0.4,
+        metadata={"source": "retriever"},
         caller="retriever",
     )
 
@@ -83,6 +101,8 @@ async def record_retriever_turn(
             confidence=0.9,
             caller="retriever",
         )
+        preferences = await _load_preferences(db, user_id=user_id)
+        await redis.setex(preferences_key, CONTEXT_TTL_SECONDS, json.dumps(preferences, ensure_ascii=False))
 
     fact = _extract_semantic_fact(user_message)
     if fact:
@@ -99,7 +119,8 @@ async def record_retriever_turn(
             source_id=None,
             caller="retriever",
         )
-        await redis.delete(_semantic_key(user_id))
+        semantic = await _load_semantic(db, user_id=user_id)
+        await redis.setex(semantic_key, CONTEXT_TTL_SECONDS, json.dumps(semantic, ensure_ascii=False))
 
 
 async def _load_episodic(db: AsyncSession, *, user_id: int) -> list[dict[str, Any]]:
@@ -143,6 +164,23 @@ async def _load_semantic(db: AsyncSession, *, user_id: int) -> list[dict[str, An
     ]
 
 
+async def _load_preferences(db: AsyncSession, *, user_id: int) -> list[dict[str, Any]]:
+    rows = await db.execute(
+        select(UserPreference)
+        .where(UserPreference.user_id == user_id)
+        .order_by(UserPreference.updated_at.desc())
+    )
+    return [
+        {
+            "key": row.key,
+            "value": row.value,
+            "category": row.category,
+            "confidence": row.confidence,
+        }
+        for row in rows.scalars()
+    ]
+
+
 def _extract_preference(text: str) -> dict[str, Any] | None:
     patterns = [
         (r"我喜欢(.{2,40})", "general_preference"),
@@ -179,3 +217,7 @@ def _context_key(user_id: int, session_id: str) -> str:
 
 def _semantic_key(user_id: int) -> str:
     return f"user:{user_id}:semantic"
+
+
+def _preferences_key(user_id: int) -> str:
+    return f"user:{user_id}:preferences"

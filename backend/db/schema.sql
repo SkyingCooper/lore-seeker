@@ -188,6 +188,7 @@ CREATE TABLE reports (
     toc                 JSONB        NOT NULL DEFAULT '[]',
     summary             TEXT,
     token_usage         JSONB        NOT NULL DEFAULT '{"total": 0, "breakdown": {}, "model_used": {}, "timestamp": null}',
+    cost_usage          JSONB        NOT NULL DEFAULT '{"total_usd": 0, "breakdown": {}, "timestamp": null}',
     user_satisfaction   VARCHAR(20),
     satisfaction_notes  TEXT,
     created_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW()
@@ -208,6 +209,7 @@ COMMENT ON COLUMN reports.content_md           IS '大模型分析总结（Markd
 COMMENT ON COLUMN reports.toc                  IS '报告目录结构';
 COMMENT ON COLUMN reports.summary              IS '报告摘要';
 COMMENT ON COLUMN reports.token_usage          IS '此次任务消耗的 token 数量，按 search/sort/retrieve/planner/memory_manager/context_manager 等环节细分';
+COMMENT ON COLUMN reports.cost_usage           IS '此次任务调用搜索 API、爬虫和 MCP 等外部能力的估算成本与额度消耗';
 COMMENT ON COLUMN reports.user_satisfaction    IS '用户满意度：dissatisfied / neutral / satisfied';
 COMMENT ON COLUMN reports.satisfaction_notes   IS '用户不满意的具体描述';
 COMMENT ON COLUMN reports.created_at           IS '报告生成时间';

@@ -82,6 +82,7 @@ contracts:
     optional_fields:
       reports:
         - "token_usage"
+        - "cost_usage"
       knowledge_chunks:
         - "content_marked"
     embedding_source: "knowledge_chunks.summary"

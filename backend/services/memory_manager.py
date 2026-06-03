@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from core.embedding_router import get_embeddings
+from core.embedding_router import get_embeddings_with_usage
 from core.llm_router import get_llm
 from core.prompt_loader import get_prompt, render_prompt
 from constraint.validation.validator import validate_db_contract
@@ -106,7 +106,8 @@ async def record_token_consumption(
         )
         db.add(balance)
 
-    balance_after = max(int(balance.balance or 0) - actual_consumed, 0)
+    starting_balance = int(balance.balance or 0)
+    balance_after = max(starting_balance - actual_consumed, 0)
     validate_db_contract(
         "record_token_consumption",
         caller=caller,
@@ -129,8 +130,9 @@ async def record_token_consumption(
         user_id=user_id,
         task_id=task_id,
         estimated_before=estimated_before,
-        starting_balance=int(balance.balance or 0),
+        starting_balance=starting_balance,
         token_usage=token_usage,
+        cost_usage=state.get("cost_usage") or {},
     )
     for log in logs:
         db.add(log)
@@ -215,6 +217,7 @@ async def _extract_and_store_llm_memories(
         await _insert_semantic_memories(
             db,
             task=task,
+            state=state,
             items=_safe_list(extracted.get("semantic_memories")),
             caller=caller,
         )
@@ -247,6 +250,7 @@ async def _insert_semantic_memories(
     db: AsyncSession,
     *,
     task: SearchTask,
+    state: dict[str, Any],
     items: list[dict[str, Any]],
     caller: str,
 ) -> None:
@@ -259,7 +263,13 @@ async def _insert_semantic_memories(
         return
 
     summaries = [str(item["summary"]) for item in valid_items]
-    embeddings = await get_embeddings(summaries)
+    embeddings, usage = await get_embeddings_with_usage(summaries)
+    state["token_usage"] = merge_stage_usage(
+        state.get("token_usage"),
+        stage="memory_manager",
+        usage=usage,
+        model=None,
+    )
     for item, embedding in zip(valid_items, embeddings):
         await insert_semantic_memory(
             db,
@@ -414,9 +424,11 @@ def _build_token_logs(
     estimated_before: int,
     starting_balance: int,
     token_usage: dict[str, Any],
+    cost_usage: dict[str, Any] | None = None,
 ) -> list[TokenConsumptionLog]:
     breakdown = token_usage.get("breakdown") if isinstance(token_usage, dict) else None
     model_used = token_usage.get("model_used") if isinstance(token_usage, dict) else None
+    cost_breakdown = cost_usage.get("breakdown") if isinstance(cost_usage, dict) else None
     if not isinstance(breakdown, dict):
         return []
 
@@ -442,7 +454,11 @@ def _build_token_logs(
                 estimated_before=estimated_before,
                 actual_consumed=stage_total,
                 balance_after=remaining_balance,
-                metadata_={"timestamp": token_usage.get("timestamp"), "stage_breakdown": item},
+                metadata_={
+                    "timestamp": token_usage.get("timestamp"),
+                    "stage_breakdown": item,
+                    "cost_usage": (cost_breakdown or {}).get(stage) if isinstance(cost_breakdown, dict) else None,
+                },
             )
         )
     return logs
