@@ -5,7 +5,11 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "npm run test:unit && npm run test:e2e && npm run test:visual",
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test tests/e2e/auth-and-browse.spec.ts tests/e2e/task-create-and-profile.spec.ts",
+    "test:visual": "playwright test tests/e2e/visual.spec.ts"
   },
   "dependencies": {
     "@lucide/vue": "^1.17.0",
@@ -18,11 +22,15 @@
     "vue-router": "^4.5.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@tailwindcss/vite": "^4.1.13",
     "@vitejs/plugin-vue": "^5.2.1",
+    "@vue/test-utils": "^2.4.10",
+    "jsdom": "^29.1.1",
     "tailwindcss": "^4.1.13",
     "typescript": "^5.7.2",
     "vite": "^6.0.5",
+    "vitest": "^4.1.8",
     "vue-tsc": "^2.1.10"
   }
 }

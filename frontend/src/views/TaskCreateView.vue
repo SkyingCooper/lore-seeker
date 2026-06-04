@@ -18,13 +18,13 @@
 
         <div v-if="topicMode === 'select'" class="space-y-1.5">
           <label class="text-sm font-medium text-neutral-700">{{ copy.topic }}</label>
-          <n-select v-model:value="selectedTopicId" :options="topicOptions" :placeholder="copy.topicPlaceholder" filterable />
+          <n-select v-model:value="selectedTopicId" data-test="task-topic-select" :options="topicOptions" :placeholder="copy.topicPlaceholder" filterable />
         </div>
 
         <template v-else>
           <div class="space-y-1.5">
             <label class="text-sm font-medium text-neutral-700">{{ copy.topicTitle }} <span class="text-red-400">*</span></label>
-            <n-input v-model:value="topicTitle" :placeholder="copy.topicTitlePlaceholder" size="large" />
+            <n-input v-model:value="topicTitle" data-test="task-topic-title" :placeholder="copy.topicTitlePlaceholder" size="large" />
           </div>
           <div class="space-y-1.5">
             <label class="text-sm font-medium text-neutral-700">{{ copy.keywords }}</label>
@@ -35,7 +35,7 @@
         <!-- 描述 -->
         <div class="space-y-1.5">
           <label class="text-sm font-medium text-neutral-700">{{ copy.description }}</label>
-          <n-input v-model:value="description" type="textarea" :placeholder="copy.descriptionPlaceholder" :rows="3" size="large" />
+            <n-input v-model:value="description" data-test="task-description" type="textarea" :placeholder="copy.descriptionPlaceholder" :rows="3" size="large" />
         </div>
 
         <!-- 搜索方式 -->
@@ -75,7 +75,7 @@
             </div>
             <!-- 自定义输入 -->
             <div class="mt-3 border-t border-[#efe8db] pt-3">
-              <n-input v-model:value="customSites" size="small" :placeholder="copy.customSitesPlaceholder" />
+              <n-input v-model:value="customSites" data-test="task-custom-sites" size="small" :placeholder="copy.customSitesPlaceholder" />
               <p class="mt-1 text-xs text-neutral-400">{{ copy.customSitesHint }}</p>
             </div>
           </div>
@@ -83,7 +83,7 @@
 
         <!-- 提交 -->
         <div class="pt-3">
-          <n-button type="primary" size="large" :loading="loading" block @click="submit">
+          <n-button data-test="task-submit" type="primary" size="large" :loading="loading" block @click="submit">
             {{ copy.submit }}
           </n-button>
         </div>

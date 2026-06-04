@@ -67,15 +67,51 @@
               <div class="text-2xl font-semibold text-neutral-900">{{ copy.preferenceTitle }}</div>
             </div>
           </template>
-          <p class="mb-4 text-sm leading-6 text-neutral-500">{{ copy.preferenceHint }}</p>
-          <n-input
-            v-model:value="prefsText"
-            type="textarea"
-            :rows="14"
-            :placeholder="jsonPlaceholder"
-          />
-          <div class="mt-4 flex justify-end">
-            <n-button type="primary" @click="savePrefs">{{ copy.savePreferences }}</n-button>
+          <template v-if="auth.isGuest">
+            <div class="rounded-2xl border border-dashed border-[#e4ddcf] bg-[#fcf8f1] px-4 py-8 text-center text-sm text-neutral-500">
+              {{ copy.guestHint }}
+            </div>
+          </template>
+          <template v-else>
+            <p class="mb-4 text-sm leading-6 text-neutral-500">{{ copy.preferenceHint }}</p>
+            <n-input
+              v-model:value="prefsText"
+              type="textarea"
+              :rows="10"
+              :placeholder="jsonPlaceholder"
+            />
+            <div class="mt-4 flex flex-wrap justify-end gap-3">
+              <n-button secondary @click="loadPreferences">{{ copy.reloadPreferences }}</n-button>
+              <n-button secondary @click="clearPreferences">{{ copy.clearPreferences }}</n-button>
+              <n-button type="primary" @click="savePrefs">{{ copy.savePreferences }}</n-button>
+            </div>
+
+            <div class="mt-6 space-y-3">
+              <div class="text-sm font-semibold text-neutral-800">{{ copy.preferenceList }}</div>
+              <div v-if="preferenceItems.length === 0" class="rounded-2xl border border-dashed border-[#e4ddcf] py-8 text-center text-sm text-neutral-400">
+                {{ copy.emptyPreferences }}
+              </div>
+              <div v-for="item in preferenceItems" :key="item.key" class="rounded-2xl border border-[#e4ddcf] bg-[#fcf8f1] px-4 py-3">
+                <div class="flex items-start justify-between gap-3">
+                  <div class="min-w-0">
+                    <div class="font-medium text-neutral-900">{{ item.key }}</div>
+                    <div class="mt-1 text-xs text-neutral-400">{{ item.category }} · {{ item.updated_at || '-' }}</div>
+                    <pre class="mt-2 overflow-x-auto whitespace-pre-wrap rounded-xl bg-white/75 px-3 py-2 text-xs text-neutral-600">{{ stringifyPreference(item.value) }}</pre>
+                  </div>
+                  <n-button text type="error" @click="deletePreference(item.key)">{{ copy.deletePreference }}</n-button>
+                </div>
+              </div>
+            </div>
+          </template>
+          <div class="mt-6 rounded-2xl border border-[#e4ddcf] bg-[#fcf8f1] px-4 py-4">
+            <div class="text-sm font-semibold text-neutral-800">{{ copy.singlePreferenceTitle }}</div>
+            <div class="mt-3 grid gap-3">
+              <n-input v-model:value="draftKey" :placeholder="copy.preferenceKeyPlaceholder" />
+              <n-input v-model:value="draftValue" type="textarea" :rows="4" :placeholder="copy.preferenceValuePlaceholder" />
+              <div class="flex justify-end">
+                <n-button type="primary" :disabled="auth.isGuest" @click="saveSinglePreference">{{ copy.saveSinglePreference }}</n-button>
+              </div>
+            </div>
           </div>
         </n-card>
       </n-grid-item>
@@ -97,6 +133,7 @@ import {
   Sparkles,
 } from '@lucide/vue'
 import api from '@/api/client'
+import { useAuthStore } from '@/stores/auth'
 import { useLocaleStore } from '@/stores/locale'
 
 interface TopicItem {
@@ -113,14 +150,18 @@ interface TopicForm {
 }
 
 const locale = useLocaleStore()
+const auth = useAuthStore()
 const message = useMessage()
 const topics = ref<TopicItem[]>([])
+const preferenceItems = ref<Array<{ key: string; value: unknown; category: string; updated_at?: string | null }>>([])
 const newTopic = ref<TopicForm>({
   title: '',
   description: '',
   keywords: [],
 })
 const prefsText = ref('')
+const draftKey = ref('')
+const draftValue = ref('')
 const jsonPlaceholder = '{\n  "output_lang": "zh-CN"\n}'
 
 const copy = computed(() =>
@@ -138,11 +179,25 @@ const copy = computed(() =>
         addTopic: '添加主题',
         preferenceTitle: '个性化偏好',
         preferenceHint: '这里直接编辑 Agent 归纳出的偏好 JSON。保存前会先在前端做 JSON 解析校验。',
+        guestHint: '游客状态下无法写入长期偏好，注册登录后即可管理。',
+        reloadPreferences: '重新加载',
+        clearPreferences: '清空偏好',
+        preferenceList: '当前偏好项',
+        emptyPreferences: '还没有偏好项',
+        deletePreference: '删除',
+        singlePreferenceTitle: '单项偏好维护',
+        preferenceKeyPlaceholder: '偏好键，如 output_lang',
+        preferenceValuePlaceholder: '偏好值 JSON，如 \"zh-CN\" 或 {\"tone\":\"concise\"}',
+        saveSinglePreference: '保存单项偏好',
         savePreferences: '保存偏好',
         topicRequired: '请输入主题名称',
         addSuccess: '主题已添加',
         saveSuccess: '偏好已保存',
         saveError: 'JSON 格式错误',
+        clearSuccess: '偏好已清空',
+        deleteSuccess: '偏好已删除',
+        singleSaveSuccess: '单项偏好已保存',
+        keyRequired: '请输入偏好键',
       }
     : {
         section: 'Settings',
@@ -157,11 +212,25 @@ const copy = computed(() =>
         addTopic: 'Add topic',
         preferenceTitle: 'Personal Preferences',
         preferenceHint: 'Edit the JSON preferences inferred by the agent. The frontend validates the JSON before saving.',
+        guestHint: 'Guests cannot persist long-term preferences. Sign in to manage them.',
+        reloadPreferences: 'Reload',
+        clearPreferences: 'Clear preferences',
+        preferenceList: 'Current preference items',
+        emptyPreferences: 'No preferences yet',
+        deletePreference: 'Delete',
+        singlePreferenceTitle: 'Single preference editor',
+        preferenceKeyPlaceholder: 'Preference key, e.g. output_lang',
+        preferenceValuePlaceholder: 'JSON value, e.g. \"en-US\" or {\"tone\":\"concise\"}',
+        saveSinglePreference: 'Save single preference',
         savePreferences: 'Save preferences',
         topicRequired: 'Topic name is required',
         addSuccess: 'Topic added',
         saveSuccess: 'Preferences saved',
         saveError: 'Invalid JSON format',
+        clearSuccess: 'Preferences cleared',
+        deleteSuccess: 'Preference deleted',
+        singleSaveSuccess: 'Preference saved',
+        keyRequired: 'Preference key is required',
       }
 )
 
@@ -172,6 +241,9 @@ onMounted(async () => {
   ])
   topics.value = topicsRes.data
   prefsText.value = JSON.stringify(meRes.data.preferences, null, 2)
+  if (!auth.isGuest) {
+    await loadPreferences()
+  }
 })
 
 async function addTopic() {
@@ -190,9 +262,55 @@ async function savePrefs() {
   try {
     const prefs = JSON.parse(prefsText.value)
     await api.patch('/api/v1/users/me/preferences', { preferences: prefs })
+    await loadPreferences()
     message.success(copy.value.saveSuccess)
   } catch {
     message.error(copy.value.saveError)
   }
+}
+
+async function loadPreferences() {
+  const res = await api.get('/api/v1/users/me/preferences')
+  preferenceItems.value = res.data.items || []
+}
+
+async function deletePreference(key: string) {
+  await api.delete(`/api/v1/users/me/preferences/${encodeURIComponent(key)}`)
+  await loadPreferences()
+  const all = Object.fromEntries(preferenceItems.value.map((item) => [item.key, item.value]))
+  prefsText.value = JSON.stringify(all, null, 2)
+  message.success(copy.value.deleteSuccess)
+}
+
+async function clearPreferences() {
+  await api.delete('/api/v1/users/me/preferences')
+  preferenceItems.value = []
+  prefsText.value = '{}'
+  message.success(copy.value.clearSuccess)
+}
+
+async function saveSinglePreference() {
+  if (!draftKey.value.trim()) {
+    message.warning(copy.value.keyRequired)
+    return
+  }
+  try {
+    const parsed = JSON.parse(draftValue.value)
+    await api.put(`/api/v1/users/me/preferences/${encodeURIComponent(draftKey.value.trim())}`, {
+      value: parsed,
+    })
+    draftKey.value = ''
+    draftValue.value = ''
+    await loadPreferences()
+    const all = Object.fromEntries(preferenceItems.value.map((item) => [item.key, item.value]))
+    prefsText.value = JSON.stringify(all, null, 2)
+    message.success(copy.value.singleSaveSuccess)
+  } catch {
+    message.error(copy.value.saveError)
+  }
+}
+
+function stringifyPreference(value: unknown) {
+  return JSON.stringify(value, null, 2)
 }
 </script>

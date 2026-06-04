@@ -48,7 +48,7 @@
 
         <div class="flex flex-wrap items-center gap-3 text-sm text-neutral-500">
           <n-select v-model:value="searchMode" class="min-w-[160px]" :options="searchModeOptions" />
-          <n-button tertiary circle @click="message.info(copy.filterPending)">
+          <n-button tertiary circle @click="cycleStatusFilter">
             <template #icon>
               <Funnel :size="17" />
             </template>
@@ -58,7 +58,7 @@
               <Search :size="17" />
             </template>
           </n-button>
-          <n-button tertiary circle @click="message.info(copy.displayPending)">
+          <n-button tertiary circle @click="toggleSummaryMode">
             <template #icon>
               <SlidersHorizontal :size="17" />
             </template>
@@ -90,12 +90,12 @@
           </div>
         </div>
 
-        <div v-if="reports.length === 0" class="bg-white px-6 py-14">
+        <div v-if="filteredReports.length === 0" class="bg-white px-6 py-14">
           <n-empty :description="copy.empty" />
         </div>
 
         <button
-          v-for="report in reports"
+          v-for="report in filteredReports"
           :key="report.id"
           class="grid w-full grid-cols-[minmax(260px,1.3fr)_160px_170px_170px] items-center border-b border-[#ece4d9] bg-white/90 px-4 py-4 text-left transition last:border-b-0 hover:bg-[#fffaf2]"
           @click="router.push(`/browse/${report.id}`)"
@@ -106,7 +106,9 @@
             </div>
             <div class="min-w-0">
               <div class="truncate text-[15px] font-medium text-neutral-900">{{ report.title || `${copy.reportNo} #${report.id}` }}</div>
-              <div class="mt-1 truncate text-sm text-neutral-500">{{ report.summary || copy.emptySummary }}</div>
+              <div class="mt-1 text-sm text-neutral-500" :class="compactSummary ? 'truncate' : 'line-clamp-2'">
+                {{ report.summary || copy.emptySummary }}
+              </div>
             </div>
           </div>
           <div class="text-sm text-neutral-600">{{ ownerLabel }}</div>
@@ -151,6 +153,7 @@ interface ReportListItem {
   created_at?: string
   quality_score?: number | null
   status?: string
+  user_satisfaction?: string | null
 }
 
 const locale = useLocaleStore()
@@ -163,6 +166,8 @@ const searching = ref(false)
 const taskId = ref<string | null>(null)
 const taskStatus = ref('')
 const activeTab = ref('recent')
+const statusFilter = ref<'all' | 'completed' | 'failed'>('all')
+const compactSummary = ref(false)
 const reports = ref<ReportListItem[]>([])
 
 const copy = computed(() =>
@@ -180,18 +185,21 @@ const copy = computed(() =>
         columnOwner: '创建者',
         columnSource: '来源',
         columnUpdated: '上次编辑时间',
-        empty: '还没有报告，先发起一次搜索。',
+        empty: '当前筛选条件下还没有报告。',
         emptySummary: '暂无摘要',
-        recent: '最近',
-        favorites: '星标',
-        shared: '已共享',
-        privateTab: '私人',
+        recent: '全部',
+        favorites: '高质量',
+        shared: '已好评',
+        privateTab: '待改进',
         reportSource: '知识报告',
         reportNo: '报告',
         owner: '你',
         taskStatus: (id: string, status: string) => `任务 ${id}... 状态：${status}`,
-        filterPending: '筛选面板后续会接入更多维度，当前列表已按时间排序。',
-        displayPending: '显示设置后续会支持列配置，当前使用默认表格。',
+        filterAll: '已切换为全部状态',
+        filterCompleted: '已切换为成功报告',
+        filterFailed: '已切换为失败报告',
+        displayCompact: '已切换为紧凑摘要',
+        displayFull: '已切换为完整摘要',
       }
     : {
         sectionLabel: 'Workspace',
@@ -206,18 +214,21 @@ const copy = computed(() =>
         columnOwner: 'Owner',
         columnSource: 'Source',
         columnUpdated: 'Last edited',
-        empty: 'No reports yet. Start a new search first.',
+        empty: 'No reports match the current filters.',
         emptySummary: 'No summary yet',
-        recent: 'Recent',
-        favorites: 'Favorites',
-        shared: 'Shared',
-        privateTab: 'Private',
+        recent: 'All',
+        favorites: 'High quality',
+        shared: 'Well rated',
+        privateTab: 'Needs review',
         reportSource: 'Knowledge report',
         reportNo: 'Report',
         owner: 'You',
         taskStatus: (id: string, status: string) => `Task ${id}... status: ${status}`,
-        filterPending: 'More filter dimensions will be added later. The list is currently sorted by time.',
-        displayPending: 'Display settings will support column configuration later. The default table is active.',
+        filterAll: 'Showing all statuses',
+        filterCompleted: 'Showing completed reports only',
+        filterFailed: 'Showing failed reports only',
+        displayCompact: 'Switched to compact summaries',
+        displayFull: 'Switched to full summaries',
       }
 )
 
@@ -235,6 +246,16 @@ const searchModeOptions = computed(() => [
 ])
 
 const ownerLabel = computed(() => copy.value.owner)
+const filteredReports = computed(() =>
+  reports.value.filter((report) => {
+    if (statusFilter.value === 'completed' && report.status !== 'completed' && report.status !== 'success') return false
+    if (statusFilter.value === 'failed' && report.status !== 'failed') return false
+    if (activeTab.value === 'favorites') return (report.quality_score ?? 0) >= 80
+    if (activeTab.value === 'shared') return report.user_satisfaction === 'satisfied'
+    if (activeTab.value === 'private') return (report.quality_score ?? 0) < 80 || report.user_satisfaction === 'dissatisfied'
+    return true
+  })
+)
 
 onMounted(loadReports)
 
@@ -258,6 +279,23 @@ async function startSearch() {
   } finally {
     searching.value = false
   }
+}
+
+function cycleStatusFilter() {
+  statusFilter.value =
+    statusFilter.value === 'all' ? 'completed' : statusFilter.value === 'completed' ? 'failed' : 'all'
+  message.success(
+    statusFilter.value === 'all'
+      ? copy.value.filterAll
+      : statusFilter.value === 'completed'
+        ? copy.value.filterCompleted
+        : copy.value.filterFailed
+  )
+}
+
+function toggleSummaryMode() {
+  compactSummary.value = !compactSummary.value
+  message.success(compactSummary.value ? copy.value.displayCompact : copy.value.displayFull)
 }
 
 function pollTask(id: string) {

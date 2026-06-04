@@ -2,6 +2,7 @@
   <div class="select-none" :class="{ 'pointer-events-none opacity-70': verified }">
     <div
       ref="trackRef"
+      data-test="slider-track"
       class="relative h-12 w-full overflow-hidden rounded-xl border transition-colors"
       :class="trackClass"
       @mousedown="onStart"
@@ -33,6 +34,7 @@
 
       <!-- 拖拽滑块 -->
       <div
+        data-test="slider-handle"
         class="absolute inset-y-0 flex w-12 cursor-grab items-center justify-center rounded-xl bg-white shadow-md transition-all duration-75 active:cursor-grabbing"
         :class="handleClass"
         :style="{ left: handleX + 'px' }"

@@ -12,10 +12,26 @@
       <div class="mt-4 flex flex-wrap gap-2">
         <span v-for="kw in task?.topic?.keywords" :key="kw" class="rounded-lg bg-[#f4ede3] px-2 py-0.5 text-xs text-neutral-600">{{ kw }}</span>
       </div>
+      <div class="mt-4 grid gap-3 text-sm text-neutral-500 md:grid-cols-3">
+        <div class="rounded-2xl border border-[#e6ddd0] bg-white/75 px-4 py-3">
+          <div class="text-xs uppercase tracking-[0.14em] text-neutral-400">{{ copy.query }}</div>
+          <div class="mt-1 font-medium text-neutral-800">{{ task?.query || '—' }}</div>
+        </div>
+        <div class="rounded-2xl border border-[#e6ddd0] bg-white/75 px-4 py-3">
+          <div class="text-xs uppercase tracking-[0.14em] text-neutral-400">{{ copy.frequency }}</div>
+          <div class="mt-1 font-medium text-neutral-800">{{ freqLabel(task?.frequency) }}</div>
+        </div>
+        <div class="rounded-2xl border border-[#e6ddd0] bg-white/75 px-4 py-3">
+          <div class="text-xs uppercase tracking-[0.14em] text-neutral-400">{{ copy.sourceSites }}</div>
+          <div class="mt-1 font-medium text-neutral-800">{{ task?.source_sites?.join(', ') || '—' }}</div>
+        </div>
+      </div>
       <div class="mt-4 flex gap-3">
-        <n-button v-if="task?.status === 'pending' || task?.status === 'failed'" type="primary" :loading="actionLoading" @click="startTask">{{ copy.start }}</n-button>
+        <n-button v-if="task?.status === 'pending'" type="primary" :loading="actionLoading" @click="startTask">{{ copy.start }}</n-button>
+        <n-button v-if="task?.status === 'pending' && task?.frequency !== 'once'" secondary :loading="actionLoading" @click="submitTask">{{ copy.submit }}</n-button>
         <n-button v-if="task?.status === 'failed'" secondary @click="retryTask">{{ copy.retry }}</n-button>
         <n-button secondary :loading="loading" @click="loadData">{{ copy.refresh }}</n-button>
+        <n-button v-if="!auth.isGuest" tertiary @click="deleteTask">{{ copy.delete }}</n-button>
       </div>
     </n-card>
 
@@ -46,14 +62,17 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { NButton, NCard, useMessage } from 'naive-ui'
+import { NButton, NCard, useDialog, useMessage } from 'naive-ui'
 import api from '@/api/client'
+import { useAuthStore } from '@/stores/auth'
 import { useLocaleStore } from '@/stores/locale'
 
 const route = useRoute()
 const router = useRouter()
 const message = useMessage()
+const dialog = useDialog()
 const locale = useLocaleStore()
+const auth = useAuthStore()
 const task = ref<any>(null)
 const reports = ref<any[]>([])
 const loading = ref(false)
@@ -98,6 +117,21 @@ async function startTask() {
   }
 }
 
+async function submitTask() {
+  if (!task.value) return
+  actionLoading.value = true
+  try {
+    await api.post(`/api/v1/tasks/${task.value.id}/submit`)
+    message.success(locale.isChinese ? '任务已提交' : 'Task submitted')
+    await loadData()
+    if (['fetching', 'organizing'].includes(task.value?.status)) startPolling()
+  } catch (e: any) {
+    message.error(e.response?.data?.detail?.detail || 'Failed')
+  } finally {
+    actionLoading.value = false
+  }
+}
+
 async function retryTask() {
   if (!task.value) return
   try {
@@ -107,6 +141,25 @@ async function retryTask() {
   } catch (e: any) {
     message.error(e.response?.data?.detail?.detail || 'Failed')
   }
+}
+
+function deleteTask() {
+  if (!task.value) return
+  dialog.warning({
+    title: locale.isChinese ? '删除任务' : 'Delete task',
+    content: locale.isChinese ? '删除后当前任务将从列表中移除。' : 'The task will be removed from active lists.',
+    positiveText: locale.isChinese ? '删除' : 'Delete',
+    negativeText: locale.isChinese ? '取消' : 'Cancel',
+    async onPositiveClick() {
+      try {
+        await api.delete(`/api/v1/tasks/${task.value.id}`)
+        message.success(locale.isChinese ? '任务已删除' : 'Task deleted')
+        router.push('/tasks')
+      } catch (e: any) {
+        message.error(e.response?.data?.detail?.detail || 'Failed')
+      }
+    },
+  })
 }
 
 function startPolling() {
@@ -143,8 +196,15 @@ function reportStatusLabel(s: string) {
   return locale.isChinese ? { completed:'全部成功',partial:'部分成功',failed:'失败',success:'成功' }[s]||s : { completed:'All success',partial:'Partial',failed:'Failed',success:'Success' }[s]||s
 }
 function formatDate(iso: string) { return new Date(iso).toLocaleDateString() }
+function freqLabel(f: string) {
+  const zh = locale.isChinese
+  const m: Record<string, string> = zh
+    ? { once: '一次', daily: '每天', weekly: '每周', biweekly: '每两周', monthly: '每月' }
+    : { once: 'Once', daily: 'Daily', weekly: 'Weekly', biweekly: 'Bi-weekly', monthly: 'Monthly' }
+  return m[f] || f
+}
 
 const copy = locale.isChinese
-  ? { noDescription:'暂无描述', start:'开始执行', retry:'重新执行', refresh:'刷新', reports:'执行报告', noReports:'暂无报告', reportNo:'报告', results:'条结果', score:'评分' }
-  : { noDescription:'No description', start:'Start', retry:'Retry', refresh:'Refresh', reports:'Reports', noReports:'No reports yet', reportNo:'Report', results:'results', score:'Score' }
+  ? { noDescription:'暂无描述', start:'开始执行', submit:'提交计划', retry:'重新执行', refresh:'刷新', delete:'删除任务', reports:'执行报告', noReports:'暂无报告', reportNo:'报告', results:'条结果', score:'评分', query:'查询词', frequency:'频率', sourceSites:'来源站点' }
+  : { noDescription:'No description', start:'Start', submit:'Submit', retry:'Retry', refresh:'Refresh', delete:'Delete', reports:'Reports', noReports:'No reports yet', reportNo:'Report', results:'results', score:'Score', query:'Query', frequency:'Frequency', sourceSites:'Source sites' }
 </script>

@@ -60,6 +60,60 @@
         </div>
       </div>
 
+      <div class="grid gap-4 border-b border-[#e5ddd2] px-6 py-5 lg:grid-cols-4 lg:px-10">
+        <div class="rounded-2xl bg-[#f6efe5] px-4 py-3">
+          <div class="text-xs uppercase tracking-[0.14em] text-neutral-400">{{ copy.quality }}</div>
+          <div class="mt-1 text-lg font-semibold text-neutral-900">{{ report.quality_score ?? '—' }}</div>
+        </div>
+        <div class="rounded-2xl bg-[#f6efe5] px-4 py-3">
+          <div class="text-xs uppercase tracking-[0.14em] text-neutral-400">{{ copy.results }}</div>
+          <div class="mt-1 text-lg font-semibold text-neutral-900">{{ report.result_count ?? 0 }}</div>
+        </div>
+        <div class="rounded-2xl bg-[#f6efe5] px-4 py-3">
+          <div class="text-xs uppercase tracking-[0.14em] text-neutral-400">{{ copy.tokens }}</div>
+          <div class="mt-1 text-lg font-semibold text-neutral-900">{{ report.token_usage?.total ?? 0 }}</div>
+        </div>
+        <div class="rounded-2xl bg-[#f6efe5] px-4 py-3">
+          <div class="text-xs uppercase tracking-[0.14em] text-neutral-400">{{ copy.cost }}</div>
+          <div class="mt-1 text-lg font-semibold text-neutral-900">${{ formatUsd(report.cost_usage?.total_usd) }}</div>
+        </div>
+      </div>
+
+      <div class="grid gap-5 border-b border-[#e5ddd2] px-6 py-5 lg:grid-cols-[minmax(0,1fr)_320px] lg:px-10">
+        <div>
+          <div class="mb-2 text-sm font-semibold text-neutral-900">{{ copy.tokenBreakdown }}</div>
+          <div v-if="tokenRows.length === 0" class="text-sm text-neutral-400">{{ copy.emptyUsage }}</div>
+          <div v-else class="space-y-2">
+            <div v-for="row in tokenRows" :key="row.key" class="rounded-2xl border border-[#ebe2d6] bg-white/80 px-4 py-3">
+              <div class="flex items-center justify-between gap-3">
+                <div class="font-medium text-neutral-900">{{ row.key }}</div>
+                <div class="text-sm text-neutral-500">{{ row.model || '—' }}</div>
+              </div>
+              <div class="mt-2 grid gap-2 text-sm text-neutral-600 md:grid-cols-3">
+                <div>{{ copy.input }}: {{ row.input_tokens ?? 0 }}</div>
+                <div>{{ copy.output }}: {{ row.output_tokens ?? 0 }}</div>
+                <div>{{ copy.total }}: {{ row.total ?? 0 }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="mb-2 text-sm font-semibold text-neutral-900">{{ copy.feedback }}</div>
+          <div class="rounded-2xl border border-[#ebe2d6] bg-white/80 p-4">
+            <div class="flex flex-wrap gap-2">
+              <n-button v-for="option in satisfactionOptions" :key="option.value" secondary size="small" @click="submitEvaluation(option.value)">
+                {{ option.label }}
+              </n-button>
+            </div>
+            <n-input v-model:value="feedbackNotes" class="mt-3" type="textarea" :rows="4" :placeholder="copy.feedbackPlaceholder" />
+            <div class="mt-3 flex items-center justify-between gap-3 text-xs text-neutral-400">
+              <span>{{ copy.currentSatisfaction }}: {{ report.user_satisfaction || '—' }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <article class="px-4 py-6 lg:px-10">
         <MdPreview :modelValue="report.content_md" theme="light" codeTheme="github" />
       </article>
@@ -77,11 +131,12 @@
 // 该页面沿用“左侧结构导航 + 右侧正文”的知识阅读模式，并接入中英文文案切换。
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { NButton } from 'naive-ui'
+import { NButton, NInput, useMessage } from 'naive-ui'
 import { ArrowLeft, BookMarked, Clock3, ListTree, NotebookText } from '@lucide/vue'
 import { MdPreview } from 'md-editor-v3'
 import logoMark from '@/assets/logo-book.avif'
 import api from '@/api/client'
+import { useAuthStore } from '@/stores/auth'
 import { useLocaleStore } from '@/stores/locale'
 
 interface TocItem {
@@ -96,13 +151,22 @@ interface ReportDetail {
   content_md: string
   toc: TocItem[]
   summary: string | null
+  result_count?: number | null
+  quality_score?: number | null
+  token_usage?: any
+  cost_usage?: any
+  user_satisfaction?: string | null
+  satisfaction_notes?: string | null
   created_at?: string
 }
 
 const route = useRoute()
 const router = useRouter()
 const locale = useLocaleStore()
+const auth = useAuthStore()
+const message = useMessage()
 const report = ref<ReportDetail | null>(null)
+const feedbackNotes = ref('')
 
 const copy = computed(() =>
   locale.isChinese
@@ -116,6 +180,19 @@ const copy = computed(() =>
         readerHint: '这份报告已经写入知识库，可以在这里按章节阅读和回看整理结果。',
         backHome: '返回首页',
         loading: '加载中...',
+        quality: '质量分',
+        results: '结果数',
+        tokens: 'Token',
+        cost: '外部成本',
+        tokenBreakdown: 'Token 分环节明细',
+        emptyUsage: '暂无资源消耗明细。',
+        input: '输入',
+        output: '输出',
+        total: '合计',
+        feedback: '满意度反馈',
+        feedbackPlaceholder: '可选：记录不满意原因或建议',
+        currentSatisfaction: '当前评价',
+        evalSaved: '评价已保存',
       }
     : {
         section: 'Report',
@@ -127,13 +204,51 @@ const copy = computed(() =>
         readerHint: 'This report has been stored in the knowledge base and can be reviewed section by section here.',
         backHome: 'Back to home',
         loading: 'Loading...',
+        quality: 'Quality',
+        results: 'Results',
+        tokens: 'Tokens',
+        cost: 'External cost',
+        tokenBreakdown: 'Token usage by stage',
+        emptyUsage: 'No usage details yet.',
+        input: 'Input',
+        output: 'Output',
+        total: 'Total',
+        feedback: 'Satisfaction',
+        feedbackPlaceholder: 'Optional notes about the result quality',
+        currentSatisfaction: 'Current rating',
+        evalSaved: 'Feedback saved',
       }
 )
 
 onMounted(async () => {
   const res = await api.get(`/api/v1/reports/${route.params.reportId}`)
   report.value = res.data
+  feedbackNotes.value = res.data.satisfaction_notes || ''
 })
+
+const tokenRows = computed(() => {
+  const breakdown = report.value?.token_usage?.breakdown || {}
+  const modelUsed = report.value?.token_usage?.model_used || {}
+  return Object.entries(breakdown).map(([key, value]: [string, any]) => ({
+    key,
+    model: modelUsed[key] ?? null,
+    ...(value || {}),
+  }))
+})
+
+const satisfactionOptions = computed(() =>
+  locale.isChinese
+    ? [
+        { value: 'satisfied', label: '满意' },
+        { value: 'neutral', label: '一般' },
+        { value: 'dissatisfied', label: '不满意' },
+      ]
+    : [
+        { value: 'satisfied', label: 'Satisfied' },
+        { value: 'neutral', label: 'Neutral' },
+        { value: 'dissatisfied', label: 'Dissatisfied' },
+      ]
+)
 
 function scrollTo(anchor: string) {
   const el = document.getElementById(anchor)
@@ -144,5 +259,20 @@ function formatDate(value?: string) {
   if (!value) return '-'
   const date = new Date(value)
   return locale.isChinese ? date.toLocaleString('zh-CN') : date.toLocaleString('en-US')
+}
+
+function formatUsd(value?: number | null) {
+  return (value ?? 0).toFixed(3)
+}
+
+async function submitEvaluation(satisfaction: string) {
+  if (!report.value || auth.isGuest) return
+  await api.post(`/api/v1/reports/${report.value.id}/evaluate`, {
+    satisfaction,
+    notes: feedbackNotes.value || null,
+  })
+  report.value.user_satisfaction = satisfaction
+  report.value.satisfaction_notes = feedbackNotes.value || null
+  message.success(copy.value.evalSaved)
 }
 </script>

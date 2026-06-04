@@ -127,6 +127,7 @@ const loading = ref(false)
 const messages = ref<ChatMessage[]>([])
 const scrollBox = ref<HTMLElement | null>(null)
 let nextId = 1
+const sessionId = ensureSessionId()
 
 const copy = computed(() =>
   locale.isChinese
@@ -178,6 +179,7 @@ async function send() {
     const res = await api.post('/api/v1/knowledge/query', {
       query: text,
       top_k: 5,
+      session_id: sessionId,
     })
     messages.value.push({
       id: nextId++,
@@ -198,5 +200,14 @@ async function scrollToBottom() {
   if (scrollBox.value) {
     scrollBox.value.scrollTop = scrollBox.value.scrollHeight
   }
+}
+
+function ensureSessionId() {
+  const key = 'lore-seeker-chat-session'
+  const existing = sessionStorage.getItem(key)
+  if (existing) return existing
+  const created = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  sessionStorage.setItem(key, created)
+  return created
 }
 </script>

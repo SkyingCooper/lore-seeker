@@ -165,7 +165,11 @@ async def _extract_and_store_llm_memories(
         return
 
     try:
-        llm = get_llm(temperature=0.1)
+        llm = get_llm(
+            provider=settings.MEMORY_MANAGER_PROVIDER,
+            model_name=settings.MEMORY_MANAGER_MODEL,
+            temperature=0.1,
+        )
         system_prompt = get_prompt("memory_manager.extract.system")
         user_prompt = render_prompt(
             "memory_manager.extract.user",

@@ -9,31 +9,31 @@
       <p class="max-w-2xl text-sm leading-7 text-neutral-500">{{ copy.subtitle }}</p>
     </header>
 
-    <section class="rounded-[28px] border border-[#dfd7ca] bg-[linear-gradient(180deg,rgba(255,255,255,0.92),rgba(255,251,245,0.96))] p-7 shadow-[0_18px_48px_rgba(148,131,105,0.08)]">
-      <div class="flex items-start gap-4">
-        <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#eef4fb] text-[#5d7896]">
-          <Users :size="26" />
+    <section class="grid gap-4 lg:grid-cols-2">
+      <button
+        v-for="item in entries"
+        :key="item.title"
+        class="rounded-[28px] border border-[#dfd7ca] bg-[linear-gradient(180deg,rgba(255,255,255,0.92),rgba(255,251,245,0.96))] p-6 text-left shadow-[0_18px_48px_rgba(148,131,105,0.08)] transition hover:-translate-y-0.5 hover:shadow-[0_22px_56px_rgba(148,131,105,0.12)]"
+        @click="router.push(item.to)"
+      >
+        <div class="flex items-start gap-4">
+          <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#eef4fb] text-[#5d7896]">
+            <component :is="item.icon" :size="24" />
+          </div>
+          <div>
+            <h2 class="text-xl font-semibold text-neutral-900">{{ item.title }}</h2>
+            <p class="mt-2 max-w-2xl text-sm leading-7 text-neutral-500">{{ item.body }}</p>
+          </div>
         </div>
-        <div>
-          <h2 class="text-xl font-semibold text-neutral-900">{{ copy.cardTitle }}</h2>
-          <p class="mt-2 max-w-2xl text-sm leading-7 text-neutral-500">{{ copy.cardBody }}</p>
-          <n-button secondary class="mt-4 rounded-2xl" @click="router.push('/profile')">
-            {{ copy.profile }}
-          </n-button>
-        </div>
-      </div>
+      </button>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
-// 文件说明：
-// CommunityView 承接账户弹窗中的协作社区入口。当前后端还没有团队/协作表，
-// 前端先提供稳定路由和功能说明，不再停留在菜单 toast。
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { NButton } from 'naive-ui'
-import { Users } from '@lucide/vue'
+import { BookOpenText, MessageCircleMore, Settings2, UserRound, Users } from '@lucide/vue'
 import { useLocaleStore } from '@/stores/locale'
 
 const router = useRouter()
@@ -44,18 +44,35 @@ const copy = computed(() =>
     ? {
         section: '协作社区',
         title: '协作社区',
-        subtitle: '未来这里会承载团队知识空间、共享报告和协作成员管理。',
-        cardTitle: '协作空间准备中',
-        cardBody: '当前系统以个人知识库为主，后续接入团队与共享数据模型后，这里会显示成员、空间和共享报告。',
-        profile: '查看个人信息',
+        subtitle: '这里集中放置账号、报告、问答和配置入口，作为当前工作台的协作导航页。',
+        profileTitle: '个人信息',
+        profileBody: '查看当前身份、账号信息、token 余额和最近消耗流水。',
+        reportsTitle: '报告归档',
+        reportsBody: '统一查看历史报告、质量分和评估结果。',
+        chatTitle: '知识问答',
+        chatBody: '进入知识库问答，围绕报告与切片进行检索式对话。',
+        settingsTitle: '个人设置',
+        settingsBody: '维护关注主题、用户偏好和研究配置。',
       }
     : {
         section: 'Community',
         title: 'Community',
-        subtitle: 'This area will host team spaces, shared reports, and collaboration members.',
-        cardTitle: 'Collaboration workspace is being prepared',
-        cardBody: 'The current system focuses on personal knowledge. Once team and sharing models are added, members, spaces, and shared reports will appear here.',
-        profile: 'View profile',
+        subtitle: 'A collaboration-style hub for account, reports, Q&A, and configuration routes in the current workspace.',
+        profileTitle: 'Profile',
+        profileBody: 'Review identity, account details, token balance, and recent consumption logs.',
+        reportsTitle: 'Report archive',
+        reportsBody: 'Browse historical reports, quality scores, and feedback.',
+        chatTitle: 'Knowledge chat',
+        chatBody: 'Open retrieval-based conversations grounded in reports and chunks.',
+        settingsTitle: 'Settings',
+        settingsBody: 'Maintain tracked topics, user preferences, and research configuration.',
       }
 )
+
+const entries = computed(() => [
+  { title: copy.value.profileTitle, body: copy.value.profileBody, icon: UserRound, to: '/profile' },
+  { title: copy.value.reportsTitle, body: copy.value.reportsBody, icon: BookOpenText, to: '/reports' },
+  { title: copy.value.chatTitle, body: copy.value.chatBody, icon: MessageCircleMore, to: '/chat' },
+  { title: copy.value.settingsTitle, body: copy.value.settingsBody, icon: Settings2, to: '/settings' },
+])
 </script>

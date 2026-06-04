@@ -54,7 +54,7 @@
         <div class="space-y-4">
           <div v-if="mode === 'register'" class="space-y-1.5">
             <label class="text-sm font-medium text-neutral-700">{{ copy.username }}</label>
-            <n-input v-model:value="username" type="text" :placeholder="copy.usernamePlaceholder" size="large">
+            <n-input v-model:value="username" data-test="username-input" type="text" :placeholder="copy.usernamePlaceholder" size="large">
               <template #prefix>
                 <UserRound :size="16" class="text-[#93a4b6]" />
               </template>
@@ -65,7 +65,7 @@
             <label class="text-sm font-medium text-neutral-700">
               {{ mode === 'login' ? copy.usernameOrEmail : copy.email }}
             </label>
-            <n-input v-model:value="email" type="text" :placeholder="mode === 'login' ? copy.usernameOrEmailPlaceholder : 'name@example.com'" size="large">
+            <n-input v-model:value="email" data-test="email-input" type="text" :placeholder="mode === 'login' ? copy.usernameOrEmailPlaceholder : 'name@example.com'" size="large">
               <template #prefix>
                 <Mail :size="16" class="text-[#93a4b6]" />
               </template>
@@ -74,7 +74,7 @@
 
           <div class="space-y-1.5">
             <label class="text-sm font-medium text-neutral-700">{{ copy.password }}</label>
-            <n-input v-model:value="password" type="password" show-password-on="click" :placeholder="copy.passwordPlaceholder" size="large">
+            <n-input v-model:value="password" data-test="password-input" type="password" show-password-on="click" :placeholder="copy.passwordPlaceholder" size="large">
               <template #prefix>
                 <KeyRound :size="16" class="text-[#93a4b6]" />
               </template>
@@ -83,7 +83,7 @@
 
           <div v-if="mode === 'register'" class="space-y-1.5">
             <label class="text-sm font-medium text-neutral-700">{{ copy.confirmPassword }}</label>
-            <n-input v-model:value="confirmPassword" type="password" show-password-on="click" :placeholder="copy.confirmPasswordPlaceholder" size="large">
+            <n-input v-model:value="confirmPassword" data-test="confirm-password-input" type="password" show-password-on="click" :placeholder="copy.confirmPasswordPlaceholder" size="large">
               <template #prefix>
                 <KeyRound :size="16" class="text-[#93a4b6]" />
               </template>
@@ -95,13 +95,13 @@
           </div>
 
           <div class="grid gap-3 pt-2">
-            <n-button type="primary" size="large" :loading="loading" @click="submit">
+            <n-button data-test="auth-submit" type="primary" size="large" :loading="loading" @click="submit">
               <template #icon>
                 <LogIn :size="18" />
               </template>
               {{ mode === 'login' ? copy.enterLogin : auth.isGuest ? copy.enterUpgrade : copy.enterRegister }}
             </n-button>
-            <n-button quaternary size="large" @click="continueAsGuest">
+            <n-button data-test="guest-continue" quaternary size="large" @click="continueAsGuest">
               <template #icon>
                 <WandSparkles :size="18" />
               </template>

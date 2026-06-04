@@ -21,23 +21,33 @@ url = "redis://redis:6379/0"
 # ===== Agent LLM 配置 =====
 [agent.planner]
 # 规划 Agent 大模型（P&E 推理，拆解任务）
-provider = "deepseek"
-model = "deepseek-chat"
+provider = "dashscope"
+model = "deepseek-v4-pro"
 
 [agent.searcher]
 # 搜索 Agent 小模型（评估结果相关性、调整搜索策略）
-provider = "deepseek"
-model = "deepseek-chat"
+provider = "dashscope"
+model = "deepseek-v4-flash"
 
 [agent.organizer]
 # 梳理 Agent 大模型（整理报告、打分）
-provider = "deepseek"
-model = "deepseek-chat"
+provider = "dashscope"
+model = "qwen3.7-plus"
+
+[agent.retriever]
+# 检索 / 问答 Agent 模型（RAG 回答、澄清、重答）
+provider = "dashscope"
+model = "deepseek-v4-flash"
+
+[agent.memory_manager]
+# 记忆管理子 Agent 模型（偏好、语义记忆、情景记忆抽取）
+provider = "dashscope"
+model = "qwen3.6-plus"
 
 # ===== LLM 供应商 =====
 # 可选: deepseek | gemini | openai
 [llm]
-default_provider = "deepseek"
+default_provider = "dashscope"
 
 [llm.deepseek]
 base_url = "https://api.deepseek.com"
@@ -51,14 +61,23 @@ model = "gemini-2.0-flash"
 base_url = "https://api.openai.com/v1"
 model = "gpt-4o-mini"
 
+[llm.dashscope]
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+model = "qwen3.6-plus"
+
 # ===== 向量模型 =====
 [embedding]
 # 可选: dashscope | openai | jina
 provider = "dashscope"
 
 [embedding.dashscope]
-model = "text-embedding-v3"
+model = "tongyi-embedding-vision-plus-2026-03-06"
 base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+models = [
+    {"model": "tongyi-embedding-vision-plus-2026-03-06", "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1"},
+    {"model": "tongyi-embedding-vision-flash-2026-03-06", "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1"}
+]
 
 [embedding.openai]
 model = "text-embedding-3-small"
@@ -73,7 +92,7 @@ base_url = "https://api.jina.ai/v1"
 provider = "dashscope"
 
 [reranker.dashscope]
-model = "gte-rerank"
+model = "qwen3-vl-rerank"
 base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
 [reranker.jina]

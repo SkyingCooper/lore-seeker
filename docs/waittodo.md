@@ -161,3 +161,26 @@
 1. 新增已确认问题时，直接补到“已确认待实现”。
 2. 问题完成后，从“已确认待实现”移动到“已完成”，并写明日期、代码入口和影响范围。
 3. 不保留“可能”“后续考虑”“待观察”这类空泛描述，只记录已经确认的问题和明确的执行状态。
+
+## 4. 当前结论
+
+- 日期：`2026-06-04`
+- 状态：已确认
+
+结论说明：
+
+1. 当前设计范围内的后端核心功能已经实现完成。
+2. 这些核心功能包括：
+   - 多 Agent 主链路：`planner / searcher / organizer / retriever / memory_manager`
+   - PydanticAI 原生可测试入口
+   - Agent / Tool / Redis / DB contract
+   - 用户偏好管理 API
+   - token 余额与消耗流水
+   - 搜索 API / crawler / MCP 统一网关
+   - Searcher 并发、限流、重试、补搜与修复性补搜
+   - Organizer 正文抽取、可信度评分、去重、低质量分流、版本 diff
+   - Retriever 双路检索、RRF、rerank、对话记忆闭环
+   - 记忆管理子 Agent
+   - `reports.token_usage` 与 `reports.cost_usage`
+3. 当前剩余内容属于增强项，不属于本阶段“基础功能未实现”问题。
+4. 因此，后续如再新增内容，应默认归入“增强优化”而不是“核心功能缺失”，除非设计范围再次扩大。

@@ -14,8 +14,8 @@ from pydantic_ai.models.openai import OpenAIModel
 from core.config import settings
 
 
-LLMProvider = Literal["deepseek", "gemini", "openai"]
-AgentModelName = Literal["planner", "searcher", "organizer", "retriever"]
+LLMProvider = Literal["deepseek", "gemini", "openai", "qwen3"]
+AgentModelName = Literal["planner", "searcher", "organizer", "retriever", "memory_manager"]
 
 
 def build_agent_model(agent_name: AgentModelName) -> OpenAIModel:
@@ -30,6 +30,12 @@ def build_agent_model(agent_name: AgentModelName) -> OpenAIModel:
     elif agent_name == "organizer":
         provider = settings.ORGANIZER_PROVIDER
         model_name = settings.ORGANIZER_MODEL
+    elif agent_name == "retriever":
+        provider = settings.RETRIEVER_PROVIDER
+        model_name = settings.RETRIEVER_MODEL
+    elif agent_name == "memory_manager":
+        provider = settings.MEMORY_MANAGER_PROVIDER
+        model_name = settings.MEMORY_MANAGER_MODEL
     else:
         provider = settings.DEFAULT_LLM_PROVIDER
         model_name = _default_model_for_provider(provider)
@@ -49,6 +55,11 @@ def build_provider_model(provider: LLMProvider, model_name: str) -> OpenAIModel:
         runtime_provider = OpenAIProvider(
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
             api_key=settings.GEMINI_API_KEY,
+        )
+    elif provider == "qwen3":
+        runtime_provider = OpenAIProvider(
+            base_url=settings.QWEN3_BASE_URL,
+            api_key=settings.DASHSCOPE_API_KEY,
         )
     else:
         runtime_provider = OpenAIProvider(
@@ -78,4 +89,6 @@ def _default_model_for_provider(provider: LLMProvider) -> str:
         return settings.DEEPSEEK_MODEL
     if provider == "gemini":
         return settings.GEMINI_MODEL
+    if provider == "qwen3":
+        return settings.QWEN3_MODEL
     return settings.OPENAI_MODEL
