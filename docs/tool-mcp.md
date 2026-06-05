@@ -101,7 +101,7 @@ Tool / MCP 层负责把外部能力以受约束、可配置、可审计的方式
 
 ### 决策
 
-爬虫配置拆为 HTTP 爬虫、动态页面爬虫、反爬处理、正文解析和站点策略。
+爬虫配置拆为源能力声明、HTTP 爬虫、动态页面爬虫、反爬处理、正文解析、决策规则和站点策略。
 
 ### 实现要点
 
@@ -111,17 +111,47 @@ Tool / MCP 层负责把外部能力以受约束、可配置、可审计的方式
 | `dynamic_crawler` | 渲染 JS 页面 | Searcher | `tool_mcp.crawler.dynamic_crawler` |
 | `anti_ban` | 代理池、指纹伪装、限流检测 | Searcher | `tool_mcp.crawler.anti_ban` |
 
+抓取优先级：
+
+1. 站点如果声明 `api_tool`，Searcher 直接生成 API job，不再先走 crawler。
+2. 站点如果声明 `rss_url`，crawler 优先抓 RSS。
+3. 都没有时先走 HTTP 静态抓取。
+4. 静态结果命中规则阈值后自动降级到 Playwright。
+
 爬虫关键配置：
 
+- `source_capabilities`：按域名声明 `api_tool / rss_url`。
 - User-Agent 和 headers。
 - `follow_redirects`。
 - `verify_ssl`。
 - Playwright / Selenium 引擎选择。
 - `wait_until`。
 - 代理池和请求间隔。
-- 内容解析器：`readability / trafilatura / newspaper3k`。
+- 内容解析器：默认 `trafilatura`，失败回退 `readability` 和 `BeautifulSoup`。
+- `decision`：静态/动态判定的阈值、特征权重、SPA 标记、错误关键词。
 - `site_policies`：按域名配置并发、延迟、超时、重试和退避。
 - `cost / quota`：统一记录静态 crawler、动态 crawler 和反爬成本估算。
+
+静态/动态判定算法：
+
+1. 先用 HTTP 抓原始 HTML。
+2. 用 `trafilatura -> readability -> BeautifulSoup` 顺序抽正文。
+3. 对以下特征加权打分：
+   - 正文为空
+   - 正文过短
+   - HTML 体积过小
+   - 命中 SPA 标记
+   - `noscript` / `enable javascript`
+   - script-heavy shell
+   - link density 过高
+   - 反爬关键词
+   - 历史静态失败率过高
+   - 历史动态成功率过高
+4. `score >= dynamic_threshold` 时自动降级到 Playwright。
+5. 最终判定结果写入：
+   - Redis `task:{task_id}:crawl_decisions`
+   - 单条结果 `crawl_decision`
+   - PostgreSQL `site_crawl_profiles`
 
 运行时入口：
 
@@ -133,6 +163,7 @@ Tool / MCP 层负责把外部能力以受约束、可配置、可审计的方式
 - 动态页面爬虫默认关闭，按任务需要启用。
 - 同一站点并发和请求间隔从配置读取。
 - 被限流时按 `Retry-After` 和退避策略处理。
+- Redis miss 时先查数据库 `site_crawl_profiles`，命中后回填 Redis。
 
 ## 5. MCP
 
@@ -145,6 +176,32 @@ MCP Server 可以扩展外部工具能力，但也会放大权限和数据边界
 MCP 作为 Tool 层的一部分管理，统一配置在 `tool_mcp.mcp`。默认允许 MCP 能力，但拒绝未注册 server。Agent 不直接调用 MCP Server，必须通过 `mcp_gateway` 统一 Tool 入口调用。
 
 ### 实现要点
+
+MCP 分两类：
+
+1. 搜索型 MCP
+   - 例如 Google Search MCP、Bing Search MCP、新闻搜索 MCP。
+   - 本质仍是通用搜索能力，只是 provider 通过 MCP server 暴露。
+   - 默认优先级低于本地已接入的搜索 API Tool。
+
+2. 站点型 MCP
+   - 例如 GitHub MCP、Hugging Face MCP、内部知识库 MCP。
+   - 面向特定站点或特定系统，通常有更结构化的数据和更稳定的语义边界。
+   - 对命中的目标站点，可以高于通用搜索 API，直接作为该站点的首选入口。
+
+默认优先级：
+
+1. 站点专属 API Tool 或站点型 MCP
+2. 通用搜索 API Tool
+3. 搜索型 MCP
+4. RSS
+5. `http_crawler`
+6. `dynamic_crawler`
+
+当前约束：
+
+- MCP 已实现统一网关，但默认主链路仍以本地 API Tool / crawler 为主。
+- 站点型 MCP 是否前置，必须通过域名级配置显式声明，不允许隐式覆盖默认顺序。
 
 MCP 强规则：
 

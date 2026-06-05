@@ -299,6 +299,49 @@ COMMENT ON COLUMN search_histories.version      IS '搜索版本号';
 COMMENT ON COLUMN search_histories.created_at   IS '记录创建时间';
 
 -- =============================================================================
+-- 站点抓取画像表
+-- =============================================================================
+
+CREATE TABLE site_crawl_profiles (
+    id                         BIGSERIAL    PRIMARY KEY,
+    domain                     VARCHAR(255) NOT NULL UNIQUE,
+    preferred_mode             VARCHAR(20)  NOT NULL DEFAULT 'static',
+    api_available              BOOLEAN      NOT NULL DEFAULT FALSE,
+    rss_available              BOOLEAN      NOT NULL DEFAULT FALSE,
+    static_attempts            INTEGER      NOT NULL DEFAULT 0,
+    static_successes           INTEGER      NOT NULL DEFAULT 0,
+    dynamic_attempts           INTEGER      NOT NULL DEFAULT 0,
+    dynamic_successes          INTEGER      NOT NULL DEFAULT 0,
+    avg_static_content_length  FLOAT        NOT NULL DEFAULT 0,
+    avg_dynamic_content_length FLOAT        NOT NULL DEFAULT 0,
+    avg_static_score           FLOAT        NOT NULL DEFAULT 0,
+    avg_dynamic_score          FLOAT        NOT NULL DEFAULT 0,
+    last_mode                  VARCHAR(20),
+    last_reason                TEXT,
+    js_required_score          FLOAT        NOT NULL DEFAULT 0,
+    feature_flags              JSONB        NOT NULL DEFAULT '{}',
+    created_at                 TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at                 TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+COMMENT ON TABLE  site_crawl_profiles                        IS '按域名聚合的抓取画像，用于静态/动态抓取预测和 API/RSS 优先策略学习';
+COMMENT ON COLUMN site_crawl_profiles.domain                 IS '域名主键键值，例如 docs.python.org';
+COMMENT ON COLUMN site_crawl_profiles.preferred_mode         IS '当前推荐抓取方式：api / rss / static / dynamic';
+COMMENT ON COLUMN site_crawl_profiles.api_available          IS '该域名是否已配置官方 API';
+COMMENT ON COLUMN site_crawl_profiles.rss_available          IS '该域名是否已配置 RSS';
+COMMENT ON COLUMN site_crawl_profiles.static_attempts        IS '静态抓取尝试次数';
+COMMENT ON COLUMN site_crawl_profiles.static_successes       IS '静态抓取成功次数';
+COMMENT ON COLUMN site_crawl_profiles.dynamic_attempts       IS '动态抓取尝试次数';
+COMMENT ON COLUMN site_crawl_profiles.dynamic_successes      IS '动态抓取成功次数';
+COMMENT ON COLUMN site_crawl_profiles.avg_static_content_length IS '静态抓取正文平均长度';
+COMMENT ON COLUMN site_crawl_profiles.avg_dynamic_content_length IS '动态抓取正文平均长度';
+COMMENT ON COLUMN site_crawl_profiles.avg_static_score       IS '静态抓取平均判定分数';
+COMMENT ON COLUMN site_crawl_profiles.avg_dynamic_score      IS '动态抓取平均判定分数';
+COMMENT ON COLUMN site_crawl_profiles.last_mode              IS '最近一次实际采用的抓取方式';
+COMMENT ON COLUMN site_crawl_profiles.last_reason            IS '最近一次决策原因摘要';
+COMMENT ON COLUMN site_crawl_profiles.js_required_score      IS '历史上该站点需要 JS 渲染的倾向分数（0~100）';
+COMMENT ON COLUMN site_crawl_profiles.feature_flags          IS '命中 SPA 标记、错误关键词、最近规则等特征摘要';
+
+-- =============================================================================
 -- Agent 五类记忆表
 -- =============================================================================
 

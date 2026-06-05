@@ -3,7 +3,7 @@ from core.config import settings
 from typing import Literal
 
 
-LLMProvider = Literal["deepseek", "gemini", "openai", "qwen3"]
+LLMProvider = Literal["deepseek", "gemini", "openai", "qwen3", "dashscope"]
 
 
 def get_llm(
@@ -34,7 +34,7 @@ def get_llm(
             streaming=streaming,
         )
 
-    if p == "qwen3":
+    if p in {"qwen3", "dashscope"}:
         return ChatOpenAI(
             model=model_name or settings.QWEN3_MODEL,
             api_key=settings.DASHSCOPE_API_KEY,

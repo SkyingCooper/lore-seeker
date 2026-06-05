@@ -62,6 +62,7 @@
 | `.env` | `TAVILY_API_KEY` | Tavily 搜索 API Key | 需要真实值 |
 | `.env` | `SERPAPI_KEY` | SerpAPI 搜索 Key | 需要真实值 |
 | `.env` | `BING_SEARCH_API_KEY` | Bing Search API Key | 需要真实值 |
+
 | `.env` | `GITHUB_TOKEN` | GitHub Search / API Token | 需要真实值 |
 | `.env` | `SERPER_API_KEY` | Serper.dev，用于 `web_search` / `academic_search.google_scholar` | 需要真实值 |
 | `.env` | `BAIDU_SEARCH_API_KEY` | 百度搜索 API Key | 需要真实值 |

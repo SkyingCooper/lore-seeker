@@ -155,6 +155,7 @@ def _build_jobs(*, queries: list[str], source_sites: list[str], search_mode: str
             selected_tool = _select_search_tool(query)
             if sites:
                 for site in sites:
+                    selected_tool = _site_override_tool(site) or _select_search_tool(query)
                     jobs.append(
                         {
                             "kind": "api",
@@ -180,6 +181,19 @@ def _build_jobs(*, queries: list[str], source_sites: list[str], search_mode: str
     if search_mode in ("crawl", "mixed") and sites:
         for query in queries:
             for site in sites:
+                site_override_tool = _site_override_tool(site)
+                if site_override_tool:
+                    jobs.append(
+                        {
+                            "kind": "api",
+                            "query": query,
+                            "tool": site_override_tool,
+                            "site": site,
+                            "subtask": _build_subtask(f"api-{job_index}", query, site_override_tool, site),
+                        }
+                    )
+                    job_index += 1
+                    continue
                 jobs.append(
                     {
                         "kind": "crawl",
@@ -372,6 +386,17 @@ def _apply_site_limits(source_sites: list[str]) -> list[str]:
     # 当前执行层先根据注册域名顺序裁剪；更细的每站点并发/延迟由 tool 层 provider 执行。
     prioritized = sorted(trimmed, key=lambda site: 0 if _domain(site) in site_policies else 1)
     return prioritized
+
+
+def _site_override_tool(site: str) -> str | None:
+    capability = ((_tool_mcp_config().get("crawler", {}) or {}).get("source_capabilities") or {}).get(_domain(site), {})
+    tool_name = capability.get("api_tool")
+    if not tool_name:
+        return None
+    runtime_tools = (_tool_mcp_config().get("tools_registry") or {})
+    if isinstance(runtime_tools, dict) and runtime_tools.get(tool_name, {}).get("enabled", False):
+        return str(tool_name)
+    return None
 
 
 def _site_policy(domain: str) -> dict[str, Any]:

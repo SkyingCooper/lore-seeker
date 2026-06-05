@@ -170,6 +170,30 @@ class SearchHistory(Base):
     report: Mapped["Report | None"] = relationship(back_populates="histories")
 
 
+class SiteCrawlProfile(Base):
+    __tablename__ = "site_crawl_profiles"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    domain: Mapped[str] = mapped_column(String(255), unique=True)
+    preferred_mode: Mapped[str] = mapped_column(String(20), default="static")
+    api_available: Mapped[bool] = mapped_column(Boolean, default=False)
+    rss_available: Mapped[bool] = mapped_column(Boolean, default=False)
+    static_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    static_successes: Mapped[int] = mapped_column(Integer, default=0)
+    dynamic_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    dynamic_successes: Mapped[int] = mapped_column(Integer, default=0)
+    avg_static_content_length: Mapped[float] = mapped_column(Float, default=0.0)
+    avg_dynamic_content_length: Mapped[float] = mapped_column(Float, default=0.0)
+    avg_static_score: Mapped[float] = mapped_column(Float, default=0.0)
+    avg_dynamic_score: Mapped[float] = mapped_column(Float, default=0.0)
+    last_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    last_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    js_required_score: Mapped[float] = mapped_column(Float, default=0.0)
+    feature_flags: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class WorkingSession(Base):
     __tablename__ = "zr_working_sessions"
 

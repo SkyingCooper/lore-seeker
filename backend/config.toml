@@ -75,8 +75,8 @@ model = "tongyi-embedding-vision-plus-2026-03-06"
 base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
 models = [
-    {"model": "tongyi-embedding-vision-plus-2026-03-06", "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1"},
-    {"model": "tongyi-embedding-vision-flash-2026-03-06", "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1"}
+    { model = "tongyi-embedding-vision-plus-2026-03-06", base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1" },
+    { model = "tongyi-embedding-vision-flash-2026-03-06", base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1" }
 ]
 
 [embedding.openai]

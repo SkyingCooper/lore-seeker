@@ -1,7 +1,13 @@
 retriever:
+  runtime_sources:
+    llm_provider: "backend/config.toml:agent.retriever.provider"
+    llm_model: "backend/config.toml:agent.retriever.model"
+    embedding_provider: "backend/config.toml:embedding.provider"
+    embedding_model: "backend/config.toml:embedding.dashscope.model"
+    reranker_provider: "backend/config.toml:reranker.provider"
+    reranker_model: "backend/config.toml:reranker.dashscope.model"
+
   embedding:
-    provider: "dashscope"
-    model: "text-embedding-v4"
     dimension: 1024
 
   keyword_retrieval:
@@ -18,7 +24,19 @@ retriever:
     candidate_top_k: 30
 
   rerank:
-    provider: "aliyun"
-    model: "qwen3-rerank"
     top_k: 5
     min_score: 0.5
+
+  answer:
+    intent_confidence_threshold: 0.6
+    dissatisfaction_markers:
+      - "不对"
+      - "不是这个"
+      - "重新回答"
+      - "重答"
+    no_hit_rerank_threshold: 0.5
+
+  memory:
+    episodic_limit: 5
+    semantic_limit: 8
+    preference_limit: 8

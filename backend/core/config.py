@@ -54,8 +54,8 @@ class TomlSource(PydanticBaseSettingsSource):
             "GEMINI_MODEL": d["llm"]["gemini"]["model"],
             "OPENAI_BASE_URL": d["llm"]["openai"]["base_url"],
             "OPENAI_MODEL": d["llm"]["openai"]["model"],
-            "QWEN3_BASE_URL": d["llm"]["qwen3"]["base_url"],
-            "QWEN3_MODEL": d["llm"]["qwen3"]["model"],
+            "QWEN3_BASE_URL": d["llm"].get("qwen3", d["llm"]["dashscope"])["base_url"],
+            "QWEN3_MODEL": d["llm"].get("qwen3", d["llm"]["dashscope"])["model"],
             # embedding
             "EMBEDDING_PROVIDER": d["embedding"]["provider"],
             "DASHSCOPE_EMBEDDING_MODEL": d["embedding"]["dashscope"]["model"],
@@ -99,19 +99,19 @@ class Settings(BaseSettings):
     CAPTCHA_TTL_SECONDS: int = 300
 
     # Agent LLM
-    PLANNER_PROVIDER: Literal["deepseek", "gemini", "openai", "qwen3"] = "deepseek"
+    PLANNER_PROVIDER: Literal["deepseek", "gemini", "openai", "qwen3", "dashscope"] = "deepseek"
     PLANNER_MODEL: str = "deepseek-chat"
-    SEARCHER_PROVIDER: Literal["deepseek", "gemini", "openai", "qwen3"] = "deepseek"
+    SEARCHER_PROVIDER: Literal["deepseek", "gemini", "openai", "qwen3", "dashscope"] = "deepseek"
     SEARCHER_MODEL: str = "deepseek-chat"
-    ORGANIZER_PROVIDER: Literal["deepseek", "gemini", "openai", "qwen3"] = "deepseek"
+    ORGANIZER_PROVIDER: Literal["deepseek", "gemini", "openai", "qwen3", "dashscope"] = "deepseek"
     ORGANIZER_MODEL: str = "deepseek-chat"
-    RETRIEVER_PROVIDER: Literal["deepseek", "gemini", "openai", "qwen3"] = "deepseek"
+    RETRIEVER_PROVIDER: Literal["deepseek", "gemini", "openai", "qwen3", "dashscope"] = "deepseek"
     RETRIEVER_MODEL: str = "deepseek-chat"
-    MEMORY_MANAGER_PROVIDER: Literal["deepseek", "gemini", "openai", "qwen3"] = "deepseek"
+    MEMORY_MANAGER_PROVIDER: Literal["deepseek", "gemini", "openai", "qwen3", "dashscope"] = "deepseek"
     MEMORY_MANAGER_MODEL: str = "deepseek-chat"
 
     # LLM vendors
-    DEFAULT_LLM_PROVIDER: Literal["deepseek", "gemini", "openai", "qwen3"] = "deepseek"
+    DEFAULT_LLM_PROVIDER: Literal["deepseek", "gemini", "openai", "qwen3", "dashscope"] = "deepseek"
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
     DEEPSEEK_MODEL: str = "deepseek-chat"
     GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta"

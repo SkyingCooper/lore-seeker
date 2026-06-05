@@ -6,7 +6,7 @@ export class TaskCreatePage {
 
   async goto() {
     await this.page.goto('/tasks/new')
-    await expect(this.page.locator('h1', { hasText: /新建任务|New Task/ })).toBeVisible()
+    await expect(this.page.getByTestId('task-create-title')).toBeVisible()
   }
 
   async fillBasicForm(title: string, description: string) {

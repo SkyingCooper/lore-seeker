@@ -161,11 +161,13 @@ Retriever 策略统一放在 `config/retriever.yaml`。
 
 核心配置：
 
-- embedding 使用千问 `text-embedding-v4`，维度 `1024`。
+- `config/retriever.yaml` 只保存检索策略，不重复保存聊天模型 provider / model。
+- Retriever 问答模型来源于 `backend/config.toml` 的 `agent.retriever.provider / model`。
+- embedding / reranker provider 与模型来源于 `backend/config.toml` 的 `embedding.*` / `reranker.*`。
+- embedding 维度为 `1024`。
 - 关键词检索使用 PostgreSQL `tsvector`。
 - 向量索引类型固定为 HNSW。
 - RRF 常量 `rrf_k` 进入配置文件，默认 `60`。
-- Rerank 统一使用阿里云 `qwen3-rerank` API。
 
 详细规则见 `agent-retriever.md`。
 

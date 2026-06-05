@@ -169,6 +169,14 @@ tool_mcp:
         quota_per_call: 1
 
   crawler:
+    source_capabilities:
+      default:
+        api_tool: null
+        rss_url: null
+      github.com:
+        api_tool: "github_search"
+        rss_url: null
+
     http_crawler:
       enabled: true
       description: "通用静态网页爬虫"
@@ -242,10 +250,47 @@ tool_mcp:
         quota_per_call: 1
 
     content_parser:
-      method: "readability"
+      method: "trafilatura"
       remove_ads: true
       remove_navigation: true
       min_content_length: 100
+
+    decision:
+      cache_ttl_seconds: 1800
+      enable_domain_learning: true
+      static_min_text_length: 300
+      static_min_html_bytes: 8192
+      static_max_link_density: 0.35
+      dynamic_threshold: 60
+      warning_threshold: 30
+      score_weights:
+        empty_content: 35
+        short_content: 20
+        short_html: 15
+        spa_marker: 30
+        noscript_js_hint: 25
+        script_heavy_shell: 20
+        high_link_density: 15
+        anti_bot_keyword: 25
+        historical_static_failure: 25
+        historical_dynamic_success: 20
+      spa_markers:
+        - "id=\"app\""
+        - "id=\"root\""
+        - "__NEXT_DATA__"
+        - "__NUXT__"
+        - "window.__INITIAL_STATE__"
+        - "hydrate("
+        - "webpack"
+        - "chunk.js"
+      error_keywords:
+        - "please enable javascript"
+        - "access denied"
+        - "verify you are human"
+        - "loading"
+        - "captcha"
+      force_dynamic_domains: []
+      force_static_domains: []
 
     site_policies:
       default:

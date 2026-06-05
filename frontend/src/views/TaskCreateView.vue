@@ -1,7 +1,7 @@
 <template>
   <div class="mx-auto max-w-3xl space-y-6 py-8">
-    <header class="space-y-2">
-      <h1 class="text-4xl font-semibold tracking-tight text-neutral-900">{{ copy.title }}</h1>
+    <header class="space-y-2" data-test="task-create-header">
+      <h1 data-test="task-create-title" class="text-4xl font-semibold tracking-tight text-neutral-900">{{ copy.title }}</h1>
       <p class="text-sm leading-7 text-neutral-500">{{ copy.subtitle }}</p>
     </header>
 

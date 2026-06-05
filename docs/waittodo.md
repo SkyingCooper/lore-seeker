@@ -108,6 +108,9 @@
    - 论文 / 专利类问题优先补 `academic_search`
    - 实时新闻类问题优先补 `news_search`
 6. Searcher 的外部 Tool 调用成本与额度消耗会同步汇总到 `state.cost_usage` 和 `reports.cost_usage`。
+7. crawler 现在按 “官方 API -> RSS -> HTTP 静态 -> Playwright 动态降级” 执行。
+8. 静态/动态判定已配置化，决策结果会先写 Redis `task:{task_id}:crawl_decisions`，最终结果带入 `search_histories.raw_results[*].crawl_decision`。
+9. 域名长期画像已进入 `site_crawl_profiles`，Redis miss 时会先查数据库再回填缓存。
 
 ### 2.2 Organizer 高级清洗与版本 diff
 
@@ -155,6 +158,100 @@
 5. `backend/services/knowledge_service.py` 会把最终聚合结果写入 `reports.cost_usage`。
 6. `backend/services/memory_manager.py` 会把同阶段 `cost_usage` 写入 `token_consumption_log.metadata`，便于对账时同时查看 token 与外部调用成本。
 7. 报告接口已经返回 `cost_usage`，前端可以直接展示任务外部资源消耗账本。
+
+### 2.5 端到端 Pipeline 测试
+
+- 状态：已完成
+- 日期：`2026-06-04`
+
+执行情况：
+
+1. 已新增 `tests/pipeline/test_pipeline_e2e.py`。
+2. 测试覆盖了“创建任务 -> 启动任务 -> Worker 收尾 -> 报告查询 -> 知识问答”这条主链路。
+3. 外部 LLM / search provider 已通过 fake / mock 隔离，不依赖真实第三方服务。
+4. 该测试重点验证：
+   - 任务创建与启动状态流转
+   - Worker 收尾时搜索历史、报告写入和记忆管理调度
+   - 报告接口可读
+   - 知识问答接口可消费 Retriever 结果并记录会话
+
+### 2.6 Guardrail 审计链路测试
+
+- 状态：已完成
+- 日期：`2026-06-04`
+
+执行情况：
+
+1. 已扩展 `tests/agents/test_guardrails.py`。
+2. 当前已覆盖：
+   - `before_run` 允许路径
+   - `before_run` 敏感字段拒绝路径
+   - `before_model_request` 允许路径
+   - `before_tool_call` 允许 / 拒绝路径
+   - `after_run` 脱敏路径
+   - `after_tool_call` 脱敏路径
+   - `on_tool_error` 的 warning / critical 路径
+   - `on_error` 的 critical 路径
+   - `build_guarded_pydantic_agent()` 元数据
+3. 已覆盖 warning / critical 归档到 `log_guardrail` 的路径，只归档需要长期保留的护栏决策。
+
+### 2.7 后端 Pytest 确定性单元测试
+
+- 状态：已完成
+- 日期：`2026-06-04`
+
+执行情况：
+
+1. 已引入 `pytest` 与 `pytest-asyncio`，并新增 `pytest.ini` 与 `tests/conftest.py`。
+2. 当前 pytest 单元测试聚焦确定性逻辑，不直接断言大模型自然语言输出。
+3. 已覆盖的维度包括：
+   - 配置与密钥加载：使用 `patch.dict` 模拟环境变量，验证 `.env / config.toml` 的优先级与 Agent 专属模型槽位。
+   - API/运行时管理：验证 `llm_router` 和 `pydantic_runtime` 是否按 provider/model 正确构造运行时对象。
+   - 提示词模板：验证 prompt 读取、变量渲染、缺失 prompt 和重复 prompt id。
+   - Tool 入参与适配：验证 caller 权限、命名 Tool 的稳定输出、成本估算与环境变量占位符替换。
+   - 异步节点状态更新：使用 `patch.object` / `AsyncMock` 固定 Agent 调用结果，验证 `planner / organizer / retriever` 对 `state` 的确定性更新逻辑。
+4. 当前 pytest 全量结果：`66 passed`。
+
+### 2.8 后端集成测试：检索器与 LangGraph 胶水代码
+
+- 状态：已完成
+- 日期：`2026-06-04`
+
+执行情况：
+
+1. 已新增检索器集成测试 `tests/integration/test_retriever_recall_pytest.py`。
+2. 测试方式：
+   - 构造固定的 keyword/vector 检索结果集；
+   - mock embedding 与 rerank 返回；
+   - 针对黄金问题集计算 Hit Rate。
+3. 当前断言：
+   - 检索结果必须包含预期黄金答案；
+   - 测试样本命中率 `Hit Rate = 1.0`，并保留 `>= 0.8` 的最低门槛。
+4. 已新增 LangGraph 集成测试 `tests/integration/test_langgraph_integration_pytest.py`。
+5. 测试覆盖：
+   - `planner -> searcher -> organizer -> quality_check` 主链路；
+   - `quality_check -> organizer -> quality_check` 的 retry 路由；
+   - 图执行后的状态合并与持久字段流转，如 `topic_config._plan`、`raw_results`、`organized_md`、`quality_score`、`final`。
+6. LangSmith 当前作为可选追踪平台，测试本身不依赖外网；如后续配置 `LANGCHAIN_TRACING_V2` 与 LangSmith key，可将同批测试执行同步上报追踪。
+
+### 2.9 后端 E2E 测试：FastAPI 对话式知识问答接口
+
+- 状态：已完成
+- 日期：`2026-06-04`
+
+执行情况：
+
+1. 已新增 `tests/e2e/test_knowledge_query_e2e_pytest.py`。
+2. 当前 E2E 以现有接口 `/api/v1/knowledge/query` 作为对话式 API 入口；项目目前尚未独立提供 `/chat` 或 `/stream` 路由。
+3. 测试方式：
+   - 使用 `httpx.AsyncClient + ASGITransport(app=app)` 模拟真实 HTTP 客户端；
+   - 使用 FastAPI `dependency_overrides` 注入测试用户、测试 DB、测试 Redis；
+   - mock Retriever 主回答逻辑，只验证 HTTP 闭环和会话流水。
+4. 测试覆盖：
+   - 同一 `session_id` 的两轮请求；
+   - 多轮对话历史累积；
+   - 每轮请求提交后调用持久化写入；
+   - 返回结果中 `answer / sources` 结构正确。
 
 ## 3. 更新规则
 

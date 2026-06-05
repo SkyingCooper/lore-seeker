@@ -497,14 +497,15 @@ Retriever 的召回和重排序策略会影响知识问答质量，不能散落�
 ### 实现要点
 
 - 向量维度统一为 `1024`。
-- embedding 模型统一使用千问 `text-embedding-v4`。
+- Retriever 问答模型来源于 `backend/config.toml` 的 `agent.retriever.provider / model`。
+- embedding provider 与模型来源于 `backend/config.toml` 的 `embedding.*` 配置。
 - 关键词检索使用 PostgreSQL `tsvector`。
 - RRF 常量 `k` 抽取为配置项，默认 `60`。
-- Rerank 统一使用阿里云 `qwen3-rerank` API。
+- rerank provider 与模型来源于 `backend/config.toml` 的 `reranker.*` 配置。
 - 所有向量索引统一使用 HNSW。
 
 ### 验收标准
 
 - `backend/db/schema.sql`、SQLAlchemy model、Tool contract 和 `config/retriever.yaml` 的向量维度一致。
-- RRF、Top-K、rerank 阈值修改只需要调整配置。
-- Retriever 不直接写死 provider、模型名或排序阈值。
+- RRF、Top-K、rerank 阈值修改只需要调整 `config/retriever.yaml`。
+- Retriever 不直接写死 provider 或模型名；策略与模型配置分层管理。

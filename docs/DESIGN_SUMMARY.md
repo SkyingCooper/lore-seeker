@@ -130,6 +130,8 @@ Lore Seeker 是一个多 Agent 知识库系统。用户创建搜索任务后，�
 6. `/api/v1/search/start` 与 `/api/v1/tasks` 的职责边界已收敛为“快速 facade + 任务主入口”的模式。
 7. Agent、Tool、Redis/DB contract 已建目录和基础 schema；Agent 节点边界、Searcher Tool 调用、任务 Redis 工作区、关键 DB 写入 / 查询已接入校验。HTTP 路由级 `ContractValidationMiddleware` 已覆盖 `/api/v1/tasks`、`/api/v1/search/start`、`/api/v1/knowledge/query`、`/api/v1/users/me/preferences*`、`/api/v1/reports/{id}/evaluate` 的核心字段漂移校验。
 8. Tool / MCP 运行时已具备动态发现与统一网关：`discover_enabled_tools()`、`list_registered_mcp_servers()`、`call_named_search_tool()`、`call_named_crawler_tool()`、`call_mcp_tool()` 均已落地；Searcher 还具备结果不足补搜和按问题类型修复性补搜。
+9. crawler 运行策略已收敛为 “API 优先、RSS 次之、静态 HTTP 默认、命中规则再降级 Playwright”，长期域名画像进入 `site_crawl_profiles`，热缓存走 Redis。
+10. MCP 策略已明确区分两类：搜索型 MCP 默认位于本地搜索 API 之后；站点型 MCP 仅在域名级显式声明时才前置为首选入口。
 
 ## 6. 验收基线
 

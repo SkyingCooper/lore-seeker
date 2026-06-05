@@ -259,7 +259,7 @@ async def call_crawler_tool(
     return await _execute_tool(
         tool_name="crawler",
         trace=envelope["trace"],
-        call=lambda: crawl_sites(urls[:5], queries),
+        call=lambda: crawl_sites(urls[:5], queries, task_id=task_id, crawler_mode="auto"),
         data_key="pages",
         provider="crawler",
         runtime_item=((_runtime_config().get("tool_mcp") or {}).get("crawler") or {}).get("http_crawler", {}),
@@ -288,7 +288,12 @@ async def call_named_crawler_tool(
     return await _execute_tool(
         tool_name=tool_name,
         trace={"trace_id": f"tool:{tool_name}:{task_id or 'none'}", "task_id": task_id, "subtask_id": None},
-        call=lambda: crawl_sites(urls[:5], queries),
+        call=lambda: crawl_sites(
+            urls[:5],
+            queries,
+            task_id=task_id,
+            crawler_mode="dynamic" if tool_name == "dynamic_crawler" else "static" if tool_name == "http_crawler" else "auto",
+        ),
         data_key="pages",
         provider=tool_name,
         runtime_item=((_runtime_config().get("tool_mcp") or {}).get("crawler") or {}).get(tool_name, {}),

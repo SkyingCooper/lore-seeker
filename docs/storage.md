@@ -41,6 +41,7 @@
 - `models.py` 和 `schema.sql` 字段语义一致。
 - 数据可通过 `user_id -> task_id -> report_id` 追溯。
 - Redis 临时状态不替代 PostgreSQL 业务主数据。
+- 域名抓取画像遵循 `Redis -> DB -> Redis 回填` 的热缓存策略，Redis 只存摘要，不存全量历史。
 
 ## 3. 核心业务表
 
@@ -258,6 +259,38 @@ Token 统计边界：
 | `topic_id` | 关联主题 |
 | `report_id` | 关联报告 |
 | `query` | 搜索文本 |
+| `raw_results[*].crawl_decision` | 单条 crawler 结果的抓取决策摘要 |
+
+`search_histories.raw_results[*].crawl_decision` 结构：
+
+```json
+{
+  "domain": "example.com",
+  "initial_mode": "static",
+  "final_mode": "dynamic",
+  "score": 82,
+  "matched_rules": ["spa_marker", "short_content"],
+  "extractor": "dynamic:trafilatura",
+  "fallback_to_dynamic": true,
+  "reason": "score_above_dynamic_threshold"
+}
+```
+
+#### site_crawl_profiles
+
+| 字段 | 说明 |
+|---|---|
+| `domain` | 域名，例如 `docs.python.org` |
+| `preferred_mode` | 当前推荐抓取方式：`api / rss / static / dynamic` |
+| `api_available` | 该域名是否已配置官方 API |
+| `rss_available` | 该域名是否已配置 RSS |
+| `static_attempts / static_successes` | 静态抓取次数与成功次数 |
+| `dynamic_attempts / dynamic_successes` | 动态抓取次数与成功次数 |
+| `avg_static_content_length / avg_dynamic_content_length` | 正文长度移动平均 |
+| `avg_static_score / avg_dynamic_score` | 决策评分移动平均 |
+| `last_mode / last_reason` | 最近一次抓取模式和原因 |
+| `js_required_score` | 该域名需要 JS 渲染的长期倾向分数 |
+| `feature_flags` | 最近命中的规则和 extractor 摘要 |
 | `source_sites` | 本次实际执行的搜索来源集合 |
 | `search_mode` | 本次实际执行的搜索方式：`api / crawl / mixed` |
 | `status` | 本次搜索执行状态：`completed / partial / failed` |

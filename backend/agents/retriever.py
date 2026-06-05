@@ -324,8 +324,10 @@ async def run_retriever_agent(
     memory_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """原生可测试的 Retriever 入口：检索 + 回答。"""
+    cfg = _retriever_config()
+    intent_threshold = float((cfg.get("answer") or {}).get("intent_confidence_threshold", 0.6))
     intent = _classify_intent(query)
-    if intent["confidence"] < 0.6:
+    if intent["confidence"] < intent_threshold:
         return {
             "answer": "我还不能确定你的问题具体指向哪一部分。请补充主题、上下文或你想对比的对象。",
             "chunks": [],
@@ -338,7 +340,7 @@ async def run_retriever_agent(
             "intent": intent,
         }
 
-    effective_query = _rewrite_query_for_retry(query, memory_context)
+    effective_query = _rewrite_query_for_retry(query, memory_context, cfg)
     chunks = await retrieve(effective_query, db, user_id=user_id, top_k=top_k * 4)
     if not chunks:
         fallback = _build_no_hit_message(query, memory_context)
@@ -386,8 +388,9 @@ def _classify_intent(query: str) -> dict[str, Any]:
     return {"intent": "knowledge_query", "confidence": 0.65}
 
 
-def _rewrite_query_for_retry(query: str, memory_context: dict[str, Any] | None) -> str:
-    if not any(term in query for term in ("不对", "不是这个", "重新回答", "重答")):
+def _rewrite_query_for_retry(query: str, memory_context: dict[str, Any] | None, cfg: dict[str, Any] | None = None) -> str:
+    markers = ((cfg or {}).get("answer") or {}).get("dissatisfaction_markers", ["不对", "不是这个", "重新回答", "重答"])
+    if not any(term in query for term in markers):
         return query
     episodic = (memory_context or {}).get("episodic") or []
     for item in reversed(episodic):
@@ -435,17 +438,22 @@ def _rrf_fuse(keyword_rows, vector_rows, *, rrf_k: int, limit: int) -> list[dict
 
 
 def _memory_context_text(memory_context: dict[str, Any]) -> str:
+    cfg = _retriever_config()
+    memory_cfg = cfg.get("memory") or {}
+    episodic_limit = int(memory_cfg.get("episodic_limit", 5))
+    semantic_limit = int(memory_cfg.get("semantic_limit", 8))
+    preference_limit = int(memory_cfg.get("preference_limit", 8))
     episodic = memory_context.get("episodic") or []
     semantic = memory_context.get("semantic") or []
     preferences = memory_context.get("preferences") or []
     parts: list[str] = []
     if preferences:
         parts.append("用户偏好：")
-        parts.extend(f"- {item.get('key')}: {item.get('value')}" for item in preferences[:8])
+        parts.extend(f"- {item.get('key')}: {item.get('value')}" for item in preferences[:preference_limit])
     if semantic:
         parts.append("长期语义记忆：")
-        parts.extend(f"- {item.get('title')}: {item.get('summary')}" for item in semantic[:8])
+        parts.extend(f"- {item.get('title')}: {item.get('summary')}" for item in semantic[:semantic_limit])
     if episodic:
         parts.append("近期情景记忆：")
-        parts.extend(f"- {item.get('content')}" for item in episodic[:5])
+        parts.extend(f"- {item.get('content')}" for item in episodic[:episodic_limit])
     return "\n".join(parts)
