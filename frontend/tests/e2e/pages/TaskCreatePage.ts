@@ -6,7 +6,7 @@ export class TaskCreatePage {
 
   async goto() {
     await this.page.goto('/tasks/new')
-    await expect(this.page.getByTestId('task-create-title')).toBeVisible()
+    await expect(this.page.getByRole('heading', { name: /新建任务|Create task/ })).toBeVisible()
   }
 
   async fillBasicForm(title: string, description: string) {

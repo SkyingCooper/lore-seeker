@@ -16,7 +16,7 @@ export const themeOverrides: GlobalThemeOverrides = {
     textColor1: '#1f252b',
     textColor2: '#59636f',
     textColor3: '#7b8794',
-    bodyColor: '#f7f3eb',
+    bodyColor: '#fbfbfa',
     cardColor: '#ffffff',
     modalColor: '#ffffff',
     tableColor: '#ffffff',
@@ -25,9 +25,9 @@ export const themeOverrides: GlobalThemeOverrides = {
     closeIconColor: '#6b7280'
   },
   Layout: {
-    color: '#f7f3eb',
-    siderColor: '#efe8dc',
-    borderColor: '#dfd9cf'
+    color: '#fbfbfa',
+    siderColor: '#f4efe6',
+    borderColor: '#ededeb'
   },
   Card: {
     borderRadius: '10px',

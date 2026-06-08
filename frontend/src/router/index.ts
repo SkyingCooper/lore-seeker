@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
+let guestLoginPromise: Promise<void> | null = null
+
 const router = createRouter({
   history: createWebHistory(),
   routes: [
@@ -32,8 +34,18 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   if (!to.meta.requiresAuth) return true
   const auth = useAuthStore()
+
+  // 游客会话不会持有 access token。刷新页面时如果本地已经有游客 userId，
+  // 直接放行，避免每次进入工作台都等待 /auth/guest 导致首屏空白。
+  if (auth.token || (auth.isGuest && auth.userId)) {
+    return true
+  }
+
   if (!auth.token) {
-    await auth.guestLogin()
+    guestLoginPromise ??= auth.guestLogin().finally(() => {
+      guestLoginPromise = null
+    })
+    await guestLoginPromise
   }
   return true
 })
